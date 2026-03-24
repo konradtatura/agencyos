@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mv /tmp/agencyos_claude_project /Users/konradtatura/agencyos/.claude)",
+      "Bash(mv /tmp/agencyos_poc /Users/konradtatura/agencyos/_poc)",
+      "Bash(mv /tmp/agencyos_claude_backup /Users/konradtatura/agencyos/.claude/memory)",
+      "Bash(npx shadcn@latest init --defaults)"
+    ]
+  }
+}
