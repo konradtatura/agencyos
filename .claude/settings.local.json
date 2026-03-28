@@ -4,7 +4,30 @@
       "Bash(mv /tmp/agencyos_claude_project /Users/konradtatura/agencyos/.claude)",
       "Bash(mv /tmp/agencyos_poc /Users/konradtatura/agencyos/_poc)",
       "Bash(mv /tmp/agencyos_claude_backup /Users/konradtatura/agencyos/.claude/memory)",
-      "Bash(npx shadcn@latest init --defaults)"
+      "Bash(npx shadcn@latest init --defaults)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(xargs ls:*)",
+      "Bash(find /Users/konradtatura/agencyos -name use-toast* -o -path */hooks/*)",
+      "Bash(log show:*)",
+      "Read(//private/tmp/**)",
+      "Bash(ls ~/agencyos/*.log)",
+      "Bash(ls ~/agencyos/.next/*.log)",
+      "Bash(node -e \"console.log\\(require\\(''crypto''\\).randomBytes\\(32\\).toString\\(''hex''\\)\\)\")",
+      "Bash(npx next:*)",
+      "Bash(grep -r \"tw-animate\\\\|animate-\" /Users/konradtatura/agencyos/app --include=*.tsx --include=*.ts -l)",
+      "Bash(node -e \"require\\(''''openai''''\\); console.log\\(''''ok''''\\)\")",
+      "Bash(npm list:*)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(node -e \"const {zodOutputFormat} = require\\(''@anthropic-ai/sdk/helpers/zod''\\); const {z} = require\\(''zod''\\); const s = z.object\\({x:z.string\\(\\)}\\); console.log\\(JSON.stringify\\(zodOutputFormat\\(s\\)\\)\\)\")",
+      "Bash(node -e \"const p = require\\(''@ffmpeg-installer/ffmpeg''\\); console.log\\(p.path, p.version\\)\")",
+      "Bash(node -e \":*)",
+      "Bash(npx supabase:*)",
+      "Bash(npx supabase@latest link --project-ref emnzxzwcbxmxnwdzaytj)",
+      "Bash(supabase --version)",
+      "Bash(git rm:*)"
     ]
   }
 }

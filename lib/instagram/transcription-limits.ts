@@ -1,0 +1,1 @@
+export const TRANSCRIPTION_DAILY_LIMIT = 100
