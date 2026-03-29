@@ -10,7 +10,7 @@ export default function MetricsPage() {
         </div>
         <div>
           <h1 className="text-xl font-semibold text-[#f9fafb]">Conversion Metrics</h1>
-          <p className="text-sm text-[#9ca3af]">VSL funnel performance</p>
+          <p className="text-sm text-[#9ca3af]">Full-funnel performance — pages to close</p>
         </div>
       </div>
       <MetricsDashboard />

@@ -29,7 +29,8 @@
       "Bash(supabase --version)",
       "Bash(git rm:*)",
       "Bash(find /Users/konradtatura/agencyos/app -type d -name *dashboard*)",
-      "Bash(grep -r \"time.range\\\\|timerange\\\\|DateRange\\\\|RangeSelector\" /Users/konradtatura/agencyos --include=*.tsx --include=*.ts)"
+      "Bash(grep -r \"time.range\\\\|timerange\\\\|DateRange\\\\|RangeSelector\" /Users/konradtatura/agencyos --include=*.tsx --include=*.ts)",
+      "Bash(grep -r \"ad_spend\\\\|no_show\" /Users/konradtatura/agencyos/supabase/migrations/*.sql)"
     ]
   }
 }

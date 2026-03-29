@@ -23,8 +23,15 @@ export interface FunnelStep {
   conversion_to_next: number | null
 }
 
+export interface DailyPoint {
+  date: string
+  [key: string]: number | string
+}
+
 export interface FunnelMetricsResponse {
   steps: FunnelStep[]
+  page_names: string[]
+  daily_views: DailyPoint[]
 }
 
 // ── Date helpers ───────────────────────────────────────────────────────────
@@ -83,7 +90,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (!creatorId) {
-    return NextResponse.json({ steps: [] } satisfies FunnelMetricsResponse)
+    return NextResponse.json({ steps: [], page_names: [], daily_views: [] } satisfies FunnelMetricsResponse)
   }
 
   // Parse date range
@@ -101,7 +108,7 @@ export async function GET(req: NextRequest) {
     .lte('visited_at', toDate.toISOString())
 
   if (!rows || rows.length === 0) {
-    return NextResponse.json({ steps: [] } satisfies FunnelMetricsResponse)
+    return NextResponse.json({ steps: [], page_names: [], daily_views: [] } satisfies FunnelMetricsResponse)
   }
 
   // Aggregate by page_name
@@ -138,5 +145,28 @@ export async function GET(req: NextRequest) {
       : null
   }
 
-  return NextResponse.json({ steps } satisfies FunnelMetricsResponse)
+  const page_names = steps.map(s => s.page_name)
+
+  // Build daily unique views: date → page_name → Set<session_id>
+  const dayPageSessions = new Map<string, Map<string, Set<string>>>()
+  for (const row of rows) {
+    const date = row.visited_at.slice(0, 10)
+    const name = row.page_name || 'home'
+    if (!dayPageSessions.has(date)) dayPageSessions.set(date, new Map())
+    const dpMap = dayPageSessions.get(date)!
+    if (!dpMap.has(name)) dpMap.set(name, new Set())
+    dpMap.get(name)!.add(row.session_id)
+  }
+
+  const daily_views: DailyPoint[] = [...dayPageSessions.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, dpMap]) => {
+      const point: DailyPoint = { date }
+      for (const name of page_names) {
+        point[name] = dpMap.get(name)?.size ?? 0
+      }
+      return point
+    })
+
+  return NextResponse.json({ steps, page_names, daily_views } satisfies FunnelMetricsResponse)
 }
