@@ -14,24 +14,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+function corsHeaders(req: NextRequest) {
+  const origin = req.headers.get('origin') ?? '*'
+  return {
+    'Access-Control-Allow-Origin':      origin,
+    'Access-Control-Allow-Methods':     'POST, OPTIONS',
+    'Access-Control-Allow-Headers':     'Content-Type',
+    'Access-Control-Allow-Credentials': 'false',
+  }
 }
 
-export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS_HEADERS })
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, { status: 200, headers: corsHeaders(req) })
 }
 
 export async function POST(req: NextRequest) {
+  const headers = corsHeaders(req)
   try {
     const body = await req.json()
     const { location_id, page_path, page_name, session_id, referrer, visited_at } = body ?? {}
 
     // Silently drop requests missing the required fields
     if (!location_id || !page_path || !session_id) {
-      return NextResponse.json({ ok: true }, { headers: CORS_HEADERS })
+      return NextResponse.json({ ok: true }, { headers })
     }
 
     const admin = createAdminClient()
@@ -59,5 +64,5 @@ export async function POST(req: NextRequest) {
     // Silent failure — never expose errors to client
   }
 
-  return NextResponse.json({ ok: true }, { headers: CORS_HEADERS })
+  return NextResponse.json({ ok: true }, { headers })
 }
