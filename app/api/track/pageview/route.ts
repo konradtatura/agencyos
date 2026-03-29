@@ -14,22 +14,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-function corsHeaders(req: NextRequest) {
-  const origin = req.headers.get('origin') ?? '*'
-  return {
-    'Access-Control-Allow-Origin':      origin,
-    'Access-Control-Allow-Methods':     'POST, OPTIONS',
-    'Access-Control-Allow-Headers':     'Content-Type',
-    'Access-Control-Allow-Credentials': 'false',
-  }
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
 }
 
-export async function OPTIONS(req: NextRequest) {
-  return new NextResponse(null, { status: 200, headers: corsHeaders(req) })
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 200, headers: CORS_HEADERS })
 }
 
 export async function POST(req: NextRequest) {
-  const headers = corsHeaders(req)
+  const headers = CORS_HEADERS
   try {
     const body = await req.json()
     const { location_id, page_path, page_name, session_id, referrer, visited_at } = body ?? {}
