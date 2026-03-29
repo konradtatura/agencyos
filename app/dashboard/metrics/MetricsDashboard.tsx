@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer,
 } from 'recharts'
 import { Eye, Phone, Users, DollarSign, TrendingUp, Loader2 } from 'lucide-react'
@@ -373,64 +373,76 @@ export default function MetricsDashboard() {
         </div>
 
         {loading ? (
-          <div className="h-56 rounded-xl bg-white/[0.02] animate-pulse" />
+          <div className="h-[200px] rounded-xl bg-white/[0.02] animate-pulse" />
         ) : dailyViews.length === 0 ? (
-          <div className="h-56 flex items-center justify-center text-white/20 text-sm">
+          <div className="h-[200px] flex items-center justify-center text-white/20 text-sm">
             No data for this period
           </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={224}>
-            <LineChart data={dailyViews} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-              <XAxis
-                dataKey="date"
-                tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={d => {
-                  const dt = new Date(d + 'T00:00:00')
-                  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                }}
-              />
-              <YAxis
-                tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                allowDecimals={false}
-              />
-              <RTooltip
-                contentStyle={{
-                  background: '#111113',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: 12,
-                  fontSize: 12,
-                  color: 'rgba(255,255,255,0.7)',
-                }}
-                labelFormatter={d => {
-                  const dt = new Date(d + 'T00:00:00')
-                  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                }}
-              />
-              {pageNames
-                .filter(name => !hiddenPages.has(name))
-                .map(name => {
-                  const originalIdx = pageNames.indexOf(name)
-                  return (
-                    <Line
-                      key={name}
-                      type="monotone"
-                      dataKey={name}
-                      name={capitalize(name)}
-                      stroke={LINE_COLORS[originalIdx % LINE_COLORS.length]}
-                      strokeWidth={2}
-                      dot={false}
-                      activeDot={{ r: 4, strokeWidth: 0 }}
-                    />
-                  )
-                })}
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+        ) : (() => {
+          const visiblePages = pageNames.filter(n => !hiddenPages.has(n))
+          const chartData = dailyViews.map(point => ({
+            date: point.date as string,
+            views: visiblePages.reduce(
+              (sum, n) => sum + (typeof point[n] === 'number' ? (point[n] as number) : 0),
+              0,
+            ),
+          }))
+          return (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart
+                data={chartData}
+                margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
+                barCategoryGap="40%"
+              >
+                <CartesianGrid
+                  vertical={false}
+                  stroke="#ffffff"
+                  strokeOpacity={0.05}
+                  strokeDasharray=""
+                />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={d => {
+                    const dt = new Date(d + 'T00:00:00')
+                    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  }}
+                />
+                <YAxis
+                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  allowDecimals={false}
+                />
+                <RTooltip
+                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                  contentStyle={{
+                    background: '#111113',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 12,
+                    fontSize: 12,
+                    color: 'rgba(255,255,255,0.7)',
+                  }}
+                  labelFormatter={d => {
+                    const dt = new Date(d + 'T00:00:00')
+                    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                  }}
+                  formatter={(value: unknown) => [fmtNum(Number(value)), 'Views']}
+                />
+                <Bar
+                  dataKey="views"
+                  fill="#2563eb"
+                  radius={[4, 4, 0, 0]}
+                  isAnimationActive={true}
+                  animationDuration={600}
+                  animationEasing="ease-out"
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )
+        })()}
       </div>
 
     </div>

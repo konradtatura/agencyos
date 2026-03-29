@@ -167,7 +167,9 @@ export default async function ContentPage({
   // ── Transcript text map (post_id → text) ─────────────────────────────────
   const transcriptMap: Record<string, string> = {}
   for (const t of rawTranscripts ?? []) {
-    transcriptMap[t.post_id] = t.transcript_text
+    if (t.transcript_text != null) {
+      transcriptMap[t.post_id] = t.transcript_text
+    }
   }
 
   return (

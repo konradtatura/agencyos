@@ -1184,6 +1184,7 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
         <PostDetailPanel
           post={selectedPost}
           averages={averages}
+          initialTranscript={transcripts[selectedPost.id] ?? null}
           scrollToTranscript={openWithTranscript}
           onClose={() => { setSelectedPost(null); setOpenWithTranscript(false) }}
           onTranscribeStart={handleTranscribeStart}

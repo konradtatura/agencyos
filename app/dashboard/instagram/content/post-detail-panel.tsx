@@ -12,6 +12,7 @@ interface Props {
   post:                PostRow
   averages:            AccountAverages
   onClose:             () => void
+  initialTranscript?:  string | null
   scrollToTranscript?: boolean
   onTranscribeStart?:  (postId: string) => void
   onTranscribed?:      (postId: string) => void
@@ -98,6 +99,7 @@ export default function PostDetailPanel({
   post,
   averages,
   onClose,
+  initialTranscript = null,
   scrollToTranscript = false,
   onTranscribeStart,
   onTranscribed,
@@ -106,7 +108,7 @@ export default function PostDetailPanel({
   const [open,             setOpen]             = useState(false)
   const [transcribing,     setTranscribing]     = useState(false)
   const [localStatus,      setLocalStatus]      = useState(post.transcript_status)
-  const [localTranscript,  setLocalTranscript]  = useState<string | null>(null)
+  const [localTranscript,  setLocalTranscript]  = useState<string | null>(initialTranscript)
   const [transcribedAt,    setTranscribedAt]    = useState<Date | null>(null)
   const [transcribeError,  setTranscribeError]  = useState<string | null>(null)
   const [copied,           setCopied]           = useState(false)
@@ -134,15 +136,6 @@ export default function PostDetailPanel({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
-
-  // ── Load transcript text if already done ─────────────────────────────────────
-  useEffect(() => {
-    if (post.transcript_status !== 'done') return
-    fetch(`/api/instagram/transcribe/status?postId=${post.id}`)
-      .then((r) => r.json())
-      .then((d) => { if (d.transcript) setLocalTranscript(d.transcript) })
-      .catch(() => {/* non-critical */})
-  }, [post.id, post.transcript_status])
 
   // ── Scroll to transcript when opened via green dot ───────────────────────────
   useEffect(() => {
