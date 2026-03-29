@@ -8,9 +8,10 @@ import {
 import {
   TrendingUp, TrendingDown, Minus, Phone, Eye, CheckCircle2,
   PhoneMissed, DollarSign, Target, X, ChevronRight, ExternalLink,
-  Loader2,
+  Loader2, ArrowDown,
 } from 'lucide-react'
 import type { VslMetricsResponse, LeadSummary, CloserStats, PeriodStats } from '@/app/api/metrics/vsl/route'
+import type { FunnelMetricsResponse, FunnelStep } from '@/app/api/metrics/funnel/route'
 
 // ── Formatting helpers ─────────────────────────────────────────────────────
 
@@ -60,10 +61,12 @@ export default function MetricsDashboard() {
   const [range, setRange]           = useState<Range>('30d')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo]     = useState('')
-  const [data, setData]             = useState<VslMetricsResponse | null>(null)
-  const [loading, setLoading]       = useState(true)
-  const [adSpend, setAdSpend]       = useState<string>('')
-  const [panel, setPanel]           = useState<{ title: string; leads: LeadSummary[] } | null>(null)
+  const [data, setData]               = useState<VslMetricsResponse | null>(null)
+  const [loading, setLoading]         = useState(true)
+  const [funnelData, setFunnelData]   = useState<FunnelMetricsResponse | null>(null)
+  const [funnelLoading, setFunnelLoading] = useState(true)
+  const [adSpend, setAdSpend]         = useState<string>('')
+  const [panel, setPanel]             = useState<{ title: string; leads: LeadSummary[] } | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -84,9 +87,25 @@ export default function MetricsDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range, customFrom, customTo])
 
+  const fetchFunnel = useCallback(async () => {
+    setFunnelLoading(true)
+    try {
+      const params = new URLSearchParams({ range })
+      if (range === 'custom' && customFrom) params.set('from', customFrom)
+      if (range === 'custom' && customTo)   params.set('to', customTo)
+      const res = await fetch(`/api/metrics/funnel?${params}`)
+      if (res.ok) setFunnelData(await res.json() as FunnelMetricsResponse)
+    } finally {
+      setFunnelLoading(false)
+    }
+  }, [range, customFrom, customTo])
+
   useEffect(() => {
-    if (range !== 'custom' || (customFrom && customTo)) fetchData()
-  }, [fetchData, range, customFrom, customTo])
+    if (range !== 'custom' || (customFrom && customTo)) {
+      fetchData()
+      fetchFunnel()
+    }
+  }, [fetchData, fetchFunnel, range, customFrom, customTo])
 
   const adSpendNum = parseFloat(adSpend) || null
   const cpbc = adSpendNum && data ? adSpendNum / Math.max(data.current.booked, 1) : null
@@ -140,6 +159,9 @@ export default function MetricsDashboard() {
           <span className="ml-auto text-xs text-[#4b5563]">{data.period.label}</span>
         )}
       </div>
+
+      {/* ── Section 0: Page-view funnel ─────────────────────────────────── */}
+      <PageViewFunnel steps={funnelData?.steps ?? null} loading={funnelLoading} />
 
       {/* ── Section 1: Metric cards ──────────────────────────────────────── */}
       {loading && !data ? (
@@ -254,6 +276,67 @@ export default function MetricsDashboard() {
 
       {/* ── Slide panel ──────────────────────────────────────────────────── */}
       <LeadsPanel panel={panel} onClose={() => setPanel(null)} />
+    </div>
+  )
+}
+
+// ── Page-view funnel ───────────────────────────────────────────────────────
+
+function PageViewFunnel({ steps, loading }: { steps: FunnelStep[] | null; loading: boolean }) {
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-[#0d1117] p-5">
+      <h2 className="text-sm font-semibold text-[#f9fafb] mb-1">Page Funnel</h2>
+      <p className="text-xs text-[#4b5563] mb-5">Unique visitors by funnel step</p>
+
+      {loading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-12 rounded-lg bg-white/5 animate-pulse" />
+          ))}
+        </div>
+      ) : !steps || steps.length === 0 ? (
+        <div className="flex items-center justify-center py-10">
+          <p className="text-sm text-[#4b5563]">No page view data for this period.</p>
+        </div>
+      ) : (
+        <div className="space-y-0">
+          {steps.map((step, i) => (
+            <div key={step.page_name}>
+              {/* Step row */}
+              <div className="flex items-center gap-4 py-3 border-b border-white/[0.06] last:border-b-0">
+                {/* Page name */}
+                <div className="w-36 shrink-0">
+                  <span className="text-sm font-medium text-[#f9fafb] capitalize">{step.page_name}</span>
+                </div>
+                {/* All views */}
+                <div className="flex-1 text-center">
+                  <div className="text-lg font-bold font-mono text-[#f9fafb]">{step.all_views.toLocaleString()}</div>
+                  <div className="text-[10px] text-[#4b5563] uppercase tracking-wide">All views</div>
+                </div>
+                {/* Unique views */}
+                <div className="flex-1 text-center">
+                  <div className="text-lg font-bold font-mono text-[#60a5fa]">{step.unique_views.toLocaleString()}</div>
+                  <div className="text-[10px] text-[#4b5563] uppercase tracking-wide">Unique</div>
+                </div>
+              </div>
+              {/* Conversion arrow between steps */}
+              {step.conversion_to_next !== null && (
+                <div className="flex items-center gap-2 py-1.5 pl-36">
+                  <ArrowDown className="w-3 h-3 text-[#4b5563] shrink-0" />
+                  <span className="text-xs font-medium text-[#6366f1]">
+                    {step.conversion_to_next.toFixed(1)}% conversion
+                  </span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Divider below funnel, above call metrics */}
+      <div className="mt-5 pt-4 border-t border-white/[0.06]">
+        <p className="text-xs text-[#4b5563]">Call booked → Showed → Closed metrics below</p>
+      </div>
     </div>
   )
 }
