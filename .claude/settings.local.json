@@ -27,7 +27,8 @@
       "Bash(npx supabase:*)",
       "Bash(npx supabase@latest link --project-ref emnzxzwcbxmxnwdzaytj)",
       "Bash(supabase --version)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(find /Users/konradtatura/agencyos/app -type d -name *dashboard*)"
     ]
   }
 }

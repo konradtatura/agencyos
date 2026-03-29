@@ -10,6 +10,7 @@ export type LeadStage =
   | 'nurture'
   | 'disqualified'
   | 'dead'
+  | 'no_show'
 
 export type OfferTier = 'ht' | 'mt' | 'lt'
 
@@ -17,7 +18,7 @@ export type PipelineType = 'main' | 'downgrade'
 
 export type DowngradeStage = 'offered' | 'interested' | 'booked' | 'closed' | 'dead'
 
-export type LeadSourceType = 'story' | 'reel' | 'organic' | 'manual'
+export type LeadSourceType = 'story' | 'reel' | 'organic' | 'manual' | 'vsl_funnel'
 
 export interface Lead {
   id: string
@@ -38,6 +39,8 @@ export interface Lead {
   lead_source_id: string | null
   dm_conversation_id: string | null
   ghl_contact_id: string | null
+  tally_answers: Record<string, unknown> | null
+  booked_at: string | null
   created_at: string
   updated_at: string
 }

@@ -91,6 +91,7 @@ function creatorNav(dmUnreadCount: number): NavSection[] {
       items: [
         { href: '/dashboard/dms',     icon: MessageSquare, label: 'DM Inbox', badge: dmUnreadCount },
         { href: '/dashboard/crm',     icon: LayoutList,    label: 'CRM'                            },
+        { href: '/dashboard/metrics', icon: TrendingUp,    label: 'Metrics'                        },
         { href: '/dashboard/revenue', icon: DollarSign,    label: 'Revenue'                        },
       ],
     },
