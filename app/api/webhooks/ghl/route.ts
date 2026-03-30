@@ -99,18 +99,6 @@ async function resolveCreatorId(
 }
 
 export async function POST(req: NextRequest) {
-  // --- Auth: verify shared secret if configured ---
-  const secret = process.env.GHL_WEBHOOK_SECRET
-  if (secret) {
-    const incoming =
-      req.headers.get('x-ghl-signature') ??
-      req.nextUrl.searchParams.get('secret')
-    if (incoming !== secret) {
-      console.warn('[ghl-webhook] rejected request: invalid secret')
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-  }
-
   let body: GhlPayload
   try {
     body = (await req.json()) as GhlPayload
