@@ -44,6 +44,7 @@ function extractName(body: GhlPayload): string {
   if (body.name) return body.name
   const parts = [body.first_name, body.last_name].filter(Boolean)
   if (parts.length) return parts.join(' ')
+  if (body.email) return body.email.toLowerCase().trim()
   return 'Unknown'
 }
 
@@ -68,34 +69,35 @@ function extractTallyAnswers(body: GhlPayload): Record<string, string> | null {
 
 async function resolveCreatorId(
   supabase: ReturnType<typeof createAdminClient>,
-  locationId: string | undefined,
+  payloadLocationId: string | undefined,
 ): Promise<string | null> {
-  // 1. Try matching GHL location_id stored in integrations.meta
+  // Use payload location_id, falling back to the env-configured GHL_LOCATION_ID
+  const locationId = payloadLocationId ?? process.env.GHL_LOCATION_ID
+
+  // 1. Try matching location_id stored in integrations table
   if (locationId) {
     const { data } = await supabase
       .from('integrations')
       .select('creator_id')
       .eq('platform', 'ghl')
       .eq('status', 'active')
-      .contains('meta', { location_id: locationId })
+      .eq('ghl_location_id', locationId)
       .maybeSingle()
 
-    if (data?.creator_id) return data.creator_id
+    if (data?.creator_id) {
+      console.log(`[ghl-webhook] resolved creator_id via integrations table (location_id=${locationId}): ${data.creator_id}`)
+      return data.creator_id
+    }
   }
 
   // 2. Fall back to env-configured default creator
   const defaultId = process.env.GHL_DEFAULT_CREATOR_ID
-  if (defaultId) return defaultId
+  if (defaultId) {
+    console.log(`[ghl-webhook] resolved creator_id via GHL_DEFAULT_CREATOR_ID: ${defaultId}`)
+    return defaultId
+  }
 
-  // 3. Last resort — first active creator in the system
-  const { data: firstCreator } = await supabase
-    .from('creator_profiles')
-    .select('id')
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-
-  return firstCreator?.id ?? null
+  return null
 }
 
 export async function POST(req: NextRequest) {
@@ -107,12 +109,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
+  console.log('[ghl-webhook] payload received:', JSON.stringify(body, null, 2))
+
   const supabase = createAdminClient()
 
   // --- Resolve creator ---
   const creatorId = await resolveCreatorId(supabase, body.location_id)
   if (!creatorId) {
-    console.error('[ghl-webhook] could not resolve creator_id — set GHL_DEFAULT_CREATOR_ID')
+    console.error('[ghl-webhook] could not resolve creator_id — set GHL_DEFAULT_CREATOR_ID or GHL_LOCATION_ID')
     return NextResponse.json({ error: 'Creator not found' }, { status: 422 })
   }
 
@@ -136,6 +140,8 @@ export async function POST(req: NextRequest) {
 
     if (existing) existingLeadId = existing.id
   }
+
+  console.log(`[ghl-webhook] resolved values — name: "${name}", email: ${email}, creator_id: ${creatorId}`)
 
   try {
     if (existingLeadId) {
