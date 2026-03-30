@@ -33,7 +33,12 @@
       "Bash(grep -r \"ad_spend\\\\|no_show\" /Users/konradtatura/agencyos/supabase/migrations/*.sql)",
       "Bash(grep -r \"post_transcripts\\\\|transcript_text\" /Users/konradtatura/agencyos --include=*.ts --include=*.tsx --include=*.js --include=*.jsx)",
       "Bash(grep -r \"downloadCsv\\\\|export.*csv\" /Users/konradtatura/agencyos --include=*.ts --include=*.tsx)",
-      "Bash(grep -r \"instagram_posts\\\\|post_transcripts\\\\|instagram_post_metrics\" /Users/konradtatura/agencyos --include=*.ts --include=*.tsx)"
+      "Bash(grep -r \"instagram_posts\\\\|post_transcripts\\\\|instagram_post_metrics\" /Users/konradtatura/agencyos --include=*.ts --include=*.tsx)",
+      "Bash(find /Users/konradtatura/agencyos/lib -type f \\\\\\(-name *.ts -o -name *.tsx \\\\\\))",
+      "Bash(find /Users/konradtatura/agencyos/components -type f \\\\\\(-name *.ts -o -name *.tsx \\\\\\))",
+      "Bash(grep -r \"funnelId\\\\|location_id.*page\" /Users/konradtatura/agencyos --include=*.ts --include=*.tsx --exclude-dir=node_modules --exclude-dir=.next)",
+      "Bash(grep -r \"navigator\\\\|window\\\\.\" /Users/konradtatura/agencyos/app --include=*.tsx --include=*.ts)",
+      "Bash(find /Users/konradtatura/agencyos/app/api -type f -name *.ts)"
     ]
   }
 }
