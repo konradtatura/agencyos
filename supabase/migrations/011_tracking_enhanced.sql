@@ -2,7 +2,8 @@
 
 ALTER TABLE public.funnel_pageviews
   ADD COLUMN IF NOT EXISTS device_type      varchar,
-  ADD COLUMN IF NOT EXISTS referrer_source  varchar;
+  ADD COLUMN IF NOT EXISTS referrer_source  varchar,
+  ADD COLUMN IF NOT EXISTS country          varchar;  -- 2-letter ISO code e.g. "US"
 
 -- ── page_leave_events ───────────────────────────────────────────────────────
 

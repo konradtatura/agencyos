@@ -2,28 +2,21 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { Eye, Phone, Users, DollarSign, TrendingUp, Loader2 } from 'lucide-react'
+import {
+  Users, Phone, Eye, DollarSign, TrendingUp, TrendingDown,
+  Loader2, Globe, Monitor, Smartphone, Tablet, Minus,
+} from 'lucide-react'
 import type { VslMetricsResponse } from '@/app/api/metrics/vsl/route'
 import type { FunnelMetricsResponse } from '@/app/api/metrics/funnel/route'
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function fmtNum(n: number) { return n.toLocaleString() }
-function fmt$(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
-  return `$${n.toFixed(0)}`
-}
-function capitalize(s: string) {
-  return s.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-}
-
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────
 
 type Range = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
+
 const RANGES: { value: Range; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: '7d', label: '7 days' },
@@ -33,34 +26,171 @@ const RANGES: { value: Range; label: string }[] = [
   { value: 'custom', label: 'Custom' },
 ]
 
-const LINE_COLORS = ['#3b82f6', '#6366f1', '#06b6d4', '#0ea5e9', '#8b5cf6', '#ec4899']
+const DEVICE_COLORS = ['#2563eb', '#7c3aed', '#10b981']
+const DEVICE_LABELS = ['Desktop', 'Mobile', 'Tablet']
+const DEVICE_ICONS  = [Monitor, Smartphone, Tablet]
 
-// ── Sub-components ─────────────────────────────────────────────────────────
+const TOOLTIP_STYLE = {
+  background: '#0d1117',
+  border: '1px solid rgba(255,255,255,0.08)',
+  borderRadius: 12,
+  fontSize: 12,
+  color: 'rgba(255,255,255,0.7)',
+  boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+}
 
-function SkeletonCard({ width }: { width: number }) {
+// Small lookup for common country names from ISO-2 codes
+const COUNTRY_NAMES: Record<string, string> = {
+  US: 'United States', GB: 'United Kingdom', CA: 'Canada', AU: 'Australia',
+  DE: 'Germany', FR: 'France', IN: 'India', BR: 'Brazil', MX: 'Mexico',
+  PH: 'Philippines', NG: 'Nigeria', ZA: 'South Africa', ID: 'Indonesia',
+  JP: 'Japan', KR: 'South Korea', SG: 'Singapore', AE: 'United Arab Emirates',
+  NL: 'Netherlands', ES: 'Spain', IT: 'Italy', PK: 'Pakistan', BD: 'Bangladesh',
+  MY: 'Malaysia', TH: 'Thailand', VN: 'Vietnam', GH: 'Ghana', KE: 'Kenya',
+  EG: 'Egypt', SA: 'Saudi Arabia', TR: 'Turkey', AR: 'Argentina', CO: 'Colombia',
+  NZ: 'New Zealand', IE: 'Ireland', SE: 'Sweden', NO: 'Norway', DK: 'Denmark',
+  FI: 'Finland', PT: 'Portugal', CH: 'Switzerland', AT: 'Austria', BE: 'Belgium',
+  PL: 'Poland', RU: 'Russia', UA: 'Ukraine', CL: 'Chile', PE: 'Peru',
+  HK: 'Hong Kong', TW: 'Taiwan', IL: 'Israel', QA: 'Qatar', KW: 'Kuwait',
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function fmtNum(n: number) { return n.toLocaleString() }
+function fmtPct(n: number) { return `${n.toFixed(1)}%` }
+function fmt$(n: number) {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
+  return `$${n.toFixed(0)}`
+}
+function capitalize(s: string) {
+  return s.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+function countryFlag(code: string): string {
+  if (!code || code.length !== 2) return '🌍'
+  return Array.from(code.toUpperCase())
+    .map(c => String.fromCodePoint(c.charCodeAt(0) + 127397))
+    .join('')
+}
+function countryName(code: string): string {
+  return COUNTRY_NAMES[code.toUpperCase()] ?? code.toUpperCase()
+}
+function fmtDate(d: string) {
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+function pctDelta(current: number, prev: number): number | null {
+  if (prev === 0) return null
+  return ((current - prev) / prev) * 100
+}
+
+// ── Skeleton components ────────────────────────────────────────────────────
+
+function SkeletonKpi() {
+  return (
+    <div className="rounded-2xl border border-white/[0.06] bg-[#0d1117] p-5 animate-pulse">
+      <div className="flex justify-between items-start mb-4">
+        <div className="h-2.5 w-20 rounded bg-white/[0.06]" />
+        <div className="w-7 h-7 rounded-lg bg-white/[0.04]" />
+      </div>
+      <div className="h-8 w-28 rounded bg-white/[0.06] mb-3" />
+      <div className="h-2.5 w-16 rounded bg-white/[0.04]" />
+    </div>
+  )
+}
+
+function SkeletonFunnelCard({ width }: { width: number }) {
   return (
     <div
-      className="rounded-2xl border border-white/[0.06] bg-white/[0.03] animate-pulse flex-shrink-0"
-      style={{ width, minWidth: width, height: 164 }}
+      className="rounded-2xl border border-white/[0.06] bg-[#0d1117] flex-shrink-0 animate-pulse"
+      style={{ width, minWidth: width, height: 152 }}
     />
   )
 }
 
-interface FunnelCardProps {
+function SkeletonChart({ height = 180 }: { height?: number }) {
+  return <div className={`rounded-xl bg-white/[0.02] animate-pulse`} style={{ height }} />
+}
+
+// ── KPI Card ───────────────────────────────────────────────────────────────
+
+interface KpiCardProps {
+  label: string
+  value: string
+  delta: number | null
   icon: React.ReactNode
+  accent?: string
+  noTrend?: boolean
+}
+
+function KpiCard({ label, value, delta, icon, accent = '#2563eb', noTrend }: KpiCardProps) {
+  const isUp    = delta !== null && delta >= 0
+  const isDown  = delta !== null && delta < 0
+
+  return (
+    <div className="rounded-2xl border border-white/[0.06] bg-[#0d1117] p-5 flex flex-col min-w-0">
+      <div className="flex items-start justify-between mb-3">
+        <span className="text-[10px] font-medium uppercase tracking-widest text-white/40 leading-tight pr-2">
+          {label}
+        </span>
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: `${accent}18`, color: accent }}
+        >
+          {icon}
+        </div>
+      </div>
+
+      <div className="font-mono text-[28px] font-bold text-white tabular-nums leading-none mb-2.5">
+        {value}
+      </div>
+
+      {noTrend ? (
+        <div className="text-[10px] text-white/20 flex items-center gap-1">
+          <Minus size={10} />
+          no comparison
+        </div>
+      ) : delta === null ? (
+        <div className="text-[10px] text-white/20">no prev data</div>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          {isUp
+            ? <TrendingUp size={11} className="text-[#10b981] shrink-0" />
+            : isDown
+            ? <TrendingDown size={11} className="text-[#f87171] shrink-0" />
+            : <Minus size={11} className="text-white/30 shrink-0" />
+          }
+          <span
+            className="text-[11px] font-semibold tabular-nums"
+            style={{ color: isUp ? '#10b981' : isDown ? '#f87171' : 'rgba(255,255,255,0.3)' }}
+          >
+            {isUp ? '+' : ''}{delta.toFixed(1)}%
+          </span>
+          <span className="text-[10px] text-white/20">vs prev period</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Funnel Step Card ───────────────────────────────────────────────────────
+
+interface FunnelCardProps {
   title: string
   mainValue: string
-  stats: { label: string; value: string }[]
+  subValue: string
+  icon: React.ReactNode
   accentColor: string
-  accentBg: string
   width: number
 }
 
-function FunnelCard({ icon, title, mainValue, stats, accentColor, accentBg, width }: FunnelCardProps) {
+function FunnelCard({ title, mainValue, subValue, icon, accentColor, width }: FunnelCardProps) {
   return (
     <div
-      className="rounded-2xl border border-white/[0.08] bg-[#0c0c0e] flex flex-col flex-shrink-0"
-      style={{ width, minWidth: width, height: 164, borderTopColor: accentColor, borderTopWidth: 2 }}
+      className="rounded-2xl border border-white/[0.08] bg-[#0d1117] flex flex-col flex-shrink-0"
+      style={{
+        width, minWidth: width, height: 152,
+        borderTopColor: accentColor, borderTopWidth: 2,
+      }}
     >
       <div className="p-4 flex flex-col h-full">
         <div className="flex items-start justify-between mb-2">
@@ -68,24 +198,19 @@ function FunnelCard({ icon, title, mainValue, stats, accentColor, accentBg, widt
             {title}
           </span>
           <div
-            className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${accentBg}`}
-            style={{ color: accentColor }}
+            className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
+            style={{ background: `${accentColor}18`, color: accentColor }}
           >
             {icon}
           </div>
         </div>
 
-        <div className="text-3xl font-bold text-white tabular-nums leading-none">
+        <div className="font-mono text-[28px] font-bold text-white tabular-nums leading-none mt-1">
           {mainValue}
         </div>
 
-        <div className="mt-auto pt-2.5 border-t border-white/[0.05] space-y-1">
-          {stats.map(s => (
-            <div key={s.label} className="flex justify-between items-center gap-2">
-              <span className="text-[10px] text-white/30 truncate">{s.label}</span>
-              <span className="text-[11px] font-semibold text-white/55 tabular-nums shrink-0">{s.value}</span>
-            </div>
-          ))}
+        <div className="mt-auto pt-2 border-t border-white/[0.05]">
+          <span className="text-[10px] text-white/30">{subValue}</span>
         </div>
       </div>
     </div>
@@ -94,21 +219,21 @@ function FunnelCard({ icon, title, mainValue, stats, accentColor, accentBg, widt
 
 function FunnelArrow({ pct }: { pct: number | null }) {
   const color =
-    pct === null ? 'rgba(255,255,255,0.15)'
-    : pct >= 50  ? '#10b981'
-    : pct >= 20  ? '#f59e0b'
-    :              '#f87171'
+    pct === null    ? 'rgba(255,255,255,0.12)'
+    : pct >= 50     ? '#10b981'
+    : pct >= 20     ? '#f59e0b'
+    :                 '#f87171'
 
   return (
     <div className="flex flex-col items-center justify-center gap-1 shrink-0 w-10">
       {pct !== null && (
-        <span className="text-[10px] font-bold tabular-nums leading-none" style={{ color }}>
+        <span className="text-[10px] font-bold tabular-nums font-mono leading-none" style={{ color }}>
           {pct.toFixed(1)}%
         </span>
       )}
-      <svg width="20" height="10" viewBox="0 0 20 10" fill="none">
+      <svg width="24" height="10" viewBox="0 0 24 10" fill="none">
         <path
-          d="M0 5 H14 M10 1.5 L14 5 L10 8.5"
+          d="M0 5 H18 M14 1.5 L18 5 L14 8.5"
           stroke={color}
           strokeWidth="1.5"
           strokeLinecap="round"
@@ -119,7 +244,20 @@ function FunnelArrow({ pct }: { pct: number | null }) {
   )
 }
 
-// ── Main component ─────────────────────────────────────────────────────────
+// ── Section Header ─────────────────────────────────────────────────────────
+
+function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-5">
+      <div className="text-white/35">{icon}</div>
+      <span className="text-[10px] font-semibold uppercase tracking-widest text-white/35">
+        {label}
+      </span>
+    </div>
+  )
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────
 
 export default function MetricsDashboard() {
   const [range, setRange]           = useState<Range>('30d')
@@ -128,7 +266,6 @@ export default function MetricsDashboard() {
   const [vslData, setVslData]       = useState<VslMetricsResponse | null>(null)
   const [funnelData, setFunnelData] = useState<FunnelMetricsResponse | null>(null)
   const [loading, setLoading]       = useState(true)
-  const [hiddenPages, setHiddenPages] = useState<Set<string>>(new Set())
 
   const buildParams = useCallback(() => {
     const p = new URLSearchParams({ range })
@@ -154,22 +291,41 @@ export default function MetricsDashboard() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
-  // Reset hidden pages on new funnel data
-  useEffect(() => { setHiddenPages(new Set()) }, [funnelData?.page_names?.join(',')])
+  // ── Derived values ──────────────────────────────────────────────────────
 
   const crm        = vslData?.current
+  const prev       = vslData?.previous
   const steps      = funnelData?.steps ?? []
   const pageNames  = funnelData?.page_names ?? []
   const dailyViews = funnelData?.daily_views ?? []
 
-  // Card widths: narrow linearly from MAX_W to MIN_W across all steps
-  const totalCards = steps.length + 3 // + 3 CRM steps
-  const MAX_W = 190
-  const MIN_W = 120
+  const totalVisitors     = funnelData?.total_visitors ?? 0
+  const prevTotalVisitors = funnelData?.prev_total_visitors ?? 0
+
+  // KPI deltas
+  const visitorsDelta    = pctDelta(totalVisitors, prevTotalVisitors)
+  const bookedDelta      = pctDelta(crm?.booked ?? 0, prev?.booked ?? 0)
+  const showRateDelta    = prev && crm
+    ? pctDelta(crm.show_rate, prev.show_rate)
+    : null
+  const closeRateDelta   = prev && crm
+    ? pctDelta(crm.close_rate, prev.close_rate)
+    : null
+
+  // Apply → Book conversion
+  const applyBook        = totalVisitors > 0 && crm
+    ? (crm.booked / totalVisitors) * 100
+    : 0
+  const prevApplyBook    = prevTotalVisitors > 0 && prev
+    ? (prev.booked / prevTotalVisitors) * 100
+    : 0
+  const applyBookDelta   = pctDelta(applyBook, prevApplyBook)
+
+  // Funnel card widths: narrow from 190 → 130 across all steps
+  const totalCards = steps.length + 3
+  const MAX_W = 190, MIN_W = 130
   const stepDelta = totalCards > 1 ? (MAX_W - MIN_W) / (totalCards - 1) : 0
-  function cardWidth(idx: number) {
-    return Math.max(MIN_W, Math.round(MAX_W - idx * stepDelta))
-  }
+  const cardWidth = (i: number) => Math.max(MIN_W, Math.round(MAX_W - i * stepDelta))
 
   // CRM step definitions
   const lastPageUnique = steps.length > 0 ? steps[steps.length - 1].unique_views : 0
@@ -180,46 +336,64 @@ export default function MetricsDashboard() {
 
   const crmSteps = [
     {
-      key: 'call_booked',
-      title: 'Call Booked',
-      icon: <Phone size={13} />,
-      count: crm?.booked ?? 0,
-      stats: [{ label: 'Show rate', value: crm ? `${crm.show_rate.toFixed(1)}%` : '0%' }],
-      accentColor: '#8b5cf6',
-      accentBg: 'bg-violet-500/10',
+      key: 'call_booked', title: 'Call Booked', icon: <Phone size={12} />,
+      count: crm?.booked ?? 0, accentColor: '#8b5cf6',
+      subLabel: `Show rate: ${crm ? fmtPct(crm.show_rate) : '—'}`,
       convNext: crm && crm.booked > 0
         ? Math.round((crm.showed / crm.booked) * 1000) / 10
         : null,
     },
     {
-      key: 'showed',
-      title: 'Showed',
-      icon: <Users size={13} />,
-      count: crm?.showed ?? 0,
-      stats: [{ label: 'Close rate', value: crm ? `${crm.close_rate.toFixed(1)}%` : '0%' }],
-      accentColor: '#f59e0b',
-      accentBg: 'bg-amber-500/10',
+      key: 'showed', title: 'Showed', icon: <Users size={12} />,
+      count: crm?.showed ?? 0, accentColor: '#f59e0b',
+      subLabel: `Close rate: ${crm ? fmtPct(crm.close_rate) : '—'}`,
       convNext: crm && crm.showed > 0
         ? Math.round((crm.closed_won / crm.showed) * 1000) / 10
         : null,
     },
     {
-      key: 'closed_won',
-      title: 'Closed Won',
-      icon: <DollarSign size={13} />,
-      count: crm?.closed_won ?? 0,
-      stats: [
-        { label: 'Revenue',  value: crm ? fmt$(crm.revenue) : '$0' },
-        { label: 'Avg deal', value: crm ? fmt$(crm.avg_deal) : '$0' },
-      ],
-      accentColor: '#10b981',
-      accentBg: 'bg-emerald-500/10',
+      key: 'closed_won', title: 'Closed Won', icon: <DollarSign size={12} />,
+      count: crm?.closed_won ?? 0, accentColor: '#10b981',
+      subLabel: crm ? `Revenue: ${fmt$(crm.revenue)}` : 'Revenue: —',
       convNext: null as number | null,
     },
   ]
 
+  // Daily booked chart (built from leads array in VSL response)
+  const dailyBooked = (() => {
+    const leads = vslData?.leads ?? []
+    const map: Record<string, number> = {}
+    for (const l of leads) {
+      const d = l.created_at.slice(0, 10)
+      map[d] = (map[d] ?? 0) + 1
+    }
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, count]) => ({ date, count }))
+  })()
+
+  // Device breakdown
+  const deviceBreakdown = funnelData?.overall_device_breakdown ?? { desktop: 0, mobile: 0, tablet: 0 }
+  const deviceTotal = deviceBreakdown.desktop + deviceBreakdown.mobile + deviceBreakdown.tablet
+  const deviceChartData = [
+    { name: 'Desktop', value: deviceBreakdown.desktop },
+    { name: 'Mobile',  value: deviceBreakdown.mobile },
+    { name: 'Tablet',  value: deviceBreakdown.tablet },
+  ]
+
+  // Traffic sources
+  const referrers = funnelData?.overall_referrers ?? []
+  const referrerTotal = referrers.reduce((s, r) => s + r.count, 0)
+
+  // Countries
+  const countries = funnelData?.country_breakdown ?? []
+  const countryTotal = countries.reduce((s, c) => s + c.count, 0)
+
+  const hasData = !loading && (totalVisitors > 0 || (crm?.booked ?? 0) > 0)
+
+  // ── Render ──────────────────────────────────────────────────────────────
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
 
       {/* ── Range selector ──────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
@@ -260,43 +434,82 @@ export default function MetricsDashboard() {
         {loading && <Loader2 size={13} className="animate-spin text-white/30" />}
       </div>
 
-      {/* ── Funnel visualization ─────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-6">
-        <div className="flex items-center gap-2 mb-5">
-          <TrendingUp size={13} className="text-white/35" />
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-white/35">
-            Conversion Funnel
-          </span>
-        </div>
+      {/* ── Section 1: KPI Bar ────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {loading ? (
+          Array.from({ length: 5 }).map((_, i) => <SkeletonKpi key={i} />)
+        ) : (
+          <>
+            <KpiCard
+              label="Total Visitors"
+              value={fmtNum(totalVisitors)}
+              delta={visitorsDelta}
+              icon={<Users size={13} />}
+            />
+            <KpiCard
+              label="Apply → Book"
+              value={fmtPct(applyBook)}
+              delta={applyBookDelta}
+              icon={<TrendingUp size={13} />}
+              noTrend={prevTotalVisitors === 0}
+            />
+            <KpiCard
+              label="Total Booked Calls"
+              value={fmtNum(crm?.booked ?? 0)}
+              delta={bookedDelta}
+              icon={<Phone size={13} />}
+              accent="#8b5cf6"
+            />
+            <KpiCard
+              label="Show Rate"
+              value={fmtPct(crm?.show_rate ?? 0)}
+              delta={showRateDelta}
+              icon={<Eye size={13} />}
+              accent="#f59e0b"
+            />
+            <KpiCard
+              label="Close Rate"
+              value={fmtPct(crm?.close_rate ?? 0)}
+              delta={closeRateDelta}
+              icon={<DollarSign size={13} />}
+              accent="#10b981"
+            />
+          </>
+        )}
+      </div>
+
+      {/* ── Section 2: Visual Funnel ──────────────────────────────────────── */}
+      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+        <SectionHeader icon={<TrendingUp size={13} />} label="Conversion Funnel" />
 
         <div className="overflow-x-auto pb-1">
           <div className="flex items-center gap-0 min-w-max">
-
             {loading ? (
-              // Skeleton
-              [0, 1, 2, 3, 4].map(i => (
+              Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="flex items-center">
-                  <SkeletonCard width={cardWidth(i)} />
+                  <SkeletonFunnelCard width={cardWidth(i)} />
                   {i < 4 && (
                     <div className="w-10 flex items-center justify-center">
-                      <div className="h-px w-5 bg-white/10 animate-pulse" />
+                      <div className="h-px w-5 bg-white/[0.06] animate-pulse" />
                     </div>
                   )}
                 </div>
               ))
+            ) : steps.length === 0 && (crm?.booked ?? 0) === 0 ? (
+              <div className="h-[152px] flex items-center justify-center w-full text-white/20 text-sm">
+                No funnel data for this period
+              </div>
             ) : (
               <>
-                {/* Page funnel steps */}
                 {steps.map((step, i) => (
                   <div key={step.page_name} className="flex items-center">
                     <FunnelCard
                       width={cardWidth(i)}
-                      icon={<Eye size={13} />}
+                      icon={<Eye size={12} />}
                       title={capitalize(step.page_name)}
                       mainValue={fmtNum(step.unique_views)}
-                      stats={[{ label: 'Total views', value: fmtNum(step.all_views) }]}
-                      accentColor="#3b82f6"
-                      accentBg="bg-blue-500/10"
+                      subValue={`${fmtNum(step.all_views)} total views`}
+                      accentColor="#2563eb"
                     />
                     <FunnelArrow
                       pct={i < steps.length - 1 ? step.conversion_to_next : pageToBookedPct}
@@ -304,7 +517,6 @@ export default function MetricsDashboard() {
                   </div>
                 ))}
 
-                {/* CRM steps */}
                 {crmSteps.map((step, i) => (
                   <div key={step.key} className="flex items-center">
                     <FunnelCard
@@ -312,127 +524,118 @@ export default function MetricsDashboard() {
                       icon={step.icon}
                       title={step.title}
                       mainValue={fmtNum(step.count)}
-                      stats={step.stats}
+                      subValue={step.subLabel}
                       accentColor={step.accentColor}
-                      accentBg={step.accentBg}
                     />
                     {i < crmSteps.length - 1 && <FunnelArrow pct={step.convNext} />}
                   </div>
                 ))}
               </>
             )}
-
           </div>
         </div>
       </div>
 
-      {/* ── Daily views chart ────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
-          <div className="flex items-center gap-2">
-            <Eye size={13} className="text-white/35" />
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-white/35">
-              Daily Page Views
-            </span>
-          </div>
+      {/* ── Section 3: Daily Trends ───────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-          {/* Page toggles */}
-          {pageNames.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {pageNames.map((name, i) => {
-                const color  = LINE_COLORS[i % LINE_COLORS.length]
-                const hidden = hiddenPages.has(name)
-                return (
-                  <button
-                    key={name}
-                    onClick={() =>
-                      setHiddenPages(prev => {
-                        const next = new Set(prev)
-                        if (next.has(name)) next.delete(name)
-                        else next.add(name)
-                        return next
-                      })
-                    }
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all"
-                    style={
-                      hidden
-                        ? { borderColor: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.25)' }
-                        : { borderColor: `${color}50`, color, background: `${color}10` }
-                    }
-                  >
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ background: hidden ? 'rgba(255,255,255,0.12)' : color }}
-                    />
-                    {capitalize(name)}
-                  </button>
-                )
-              })}
+        {/* Page Views Area Chart */}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+          <SectionHeader icon={<Eye size={13} />} label="Page Views by Day" />
+
+          {loading ? (
+            <SkeletonChart />
+          ) : dailyViews.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
+              No data for this period
             </div>
-          )}
+          ) : (() => {
+            const chartData = dailyViews.map(pt => ({
+              date: pt.date as string,
+              views: pageNames.reduce(
+                (s, n) => s + (typeof pt[n] === 'number' ? (pt[n] as number) : 0),
+                0
+              ),
+            }))
+            return (
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="pgGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#2563eb" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="#ffffff" strokeOpacity={0.05} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
+                    axisLine={false} tickLine={false}
+                    tickFormatter={fmtDate}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
+                    axisLine={false} tickLine={false} allowDecimals={false}
+                  />
+                  <RTooltip
+                    cursor={{ stroke: 'rgba(255,255,255,0.08)', strokeWidth: 1 }}
+                    contentStyle={TOOLTIP_STYLE}
+                    labelFormatter={d => fmtDate(d as string)}
+                    formatter={(v: unknown) => [fmtNum(Number(v)), 'Views']}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="views"
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    fill="url(#pgGrad)"
+                    dot={false}
+                    activeDot={{ r: 4, fill: '#2563eb', strokeWidth: 0 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )
+          })()}
         </div>
 
-        {loading ? (
-          <div className="h-[200px] rounded-xl bg-white/[0.02] animate-pulse" />
-        ) : dailyViews.length === 0 ? (
-          <div className="h-[200px] flex items-center justify-center text-white/20 text-sm">
-            No data for this period
-          </div>
-        ) : (() => {
-          const visiblePages = pageNames.filter(n => !hiddenPages.has(n))
-          const chartData = dailyViews.map(point => ({
-            date: point.date as string,
-            views: visiblePages.reduce(
-              (sum, n) => sum + (typeof point[n] === 'number' ? (point[n] as number) : 0),
-              0,
-            ),
-          }))
-          return (
-            <ResponsiveContainer width="100%" height={200}>
+        {/* Booked Calls Bar Chart */}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+          <SectionHeader icon={<Phone size={13} />} label="Booked Calls by Day" />
+
+          {loading ? (
+            <SkeletonChart />
+          ) : dailyBooked.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
+              No data for this period
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={180}>
               <BarChart
-                data={chartData}
-                margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
+                data={dailyBooked}
+                margin={{ top: 4, right: 4, left: -24, bottom: 0 }}
                 barCategoryGap="40%"
               >
-                <CartesianGrid
-                  vertical={false}
-                  stroke="#ffffff"
-                  strokeOpacity={0.05}
-                  strokeDasharray=""
-                />
+                <CartesianGrid vertical={false} stroke="#ffffff" strokeOpacity={0.05} />
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={d => {
-                    const dt = new Date(d + 'T00:00:00')
-                    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                  }}
+                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
+                  axisLine={false} tickLine={false}
+                  tickFormatter={fmtDate}
+                  interval="preserveStartEnd"
                 />
                 <YAxis
-                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={false}
+                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
+                  axisLine={false} tickLine={false} allowDecimals={false}
                 />
                 <RTooltip
                   cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                  contentStyle={{
-                    background: '#111113',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 12,
-                    fontSize: 12,
-                    color: 'rgba(255,255,255,0.7)',
-                  }}
-                  labelFormatter={d => {
-                    const dt = new Date(d + 'T00:00:00')
-                    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-                  }}
-                  formatter={(value: unknown) => [fmtNum(Number(value)), 'Views']}
+                  contentStyle={TOOLTIP_STYLE}
+                  labelFormatter={d => fmtDate(d as string)}
+                  formatter={(v: unknown) => [fmtNum(Number(v)), 'Booked']}
                 />
                 <Bar
-                  dataKey="views"
+                  dataKey="count"
                   fill="#2563eb"
                   radius={[4, 4, 0, 0]}
                   isAnimationActive={true}
@@ -441,9 +644,200 @@ export default function MetricsDashboard() {
                 />
               </BarChart>
             </ResponsiveContainer>
-          )
-        })()}
+          )}
+        </div>
       </div>
+
+      {/* ── Section 4: Traffic Sources + Device Breakdown ─────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Traffic Sources */}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+          <SectionHeader icon={<Globe size={13} />} label="Traffic Sources" />
+
+          {loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="animate-pulse">
+                  <div className="flex justify-between mb-1.5">
+                    <div className="h-2.5 w-20 rounded bg-white/[0.06]" />
+                    <div className="h-2.5 w-10 rounded bg-white/[0.04]" />
+                  </div>
+                  <div className="h-2 rounded-full bg-white/[0.04]" style={{ width: `${80 - i * 12}%` }} />
+                </div>
+              ))}
+            </div>
+          ) : referrers.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
+              No referrer data yet
+            </div>
+          ) : (
+            <div className="space-y-3.5">
+              {referrers.map(r => {
+                const pct = referrerTotal > 0 ? (r.count / referrerTotal) * 100 : 0
+                return (
+                  <div key={r.source}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className="text-[12px] font-medium text-white/70">
+                        {capitalize(r.source)}
+                      </span>
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-[11px] font-mono text-white/40">
+                          {fmtNum(r.count)}
+                        </span>
+                        <span className="text-[11px] font-semibold text-white/50 tabular-nums w-10 text-right">
+                          {pct.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: `${pct}%`,
+                          background: 'linear-gradient(90deg, #2563eb, #3b82f6)',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Device Breakdown */}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+          <SectionHeader icon={<Monitor size={13} />} label="Device Breakdown" />
+
+          {loading ? (
+            <SkeletonChart height={160} />
+          ) : deviceTotal === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
+              No device data yet
+            </div>
+          ) : (
+            <>
+              <div className="relative h-[160px]">
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie
+                      data={deviceChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={72}
+                      paddingAngle={3}
+                      dataKey="value"
+                      startAngle={90}
+                      endAngle={-270}
+                      strokeWidth={0}
+                    >
+                      {deviceChartData.map((_, i) => (
+                        <Cell key={i} fill={DEVICE_COLORS[i]} />
+                      ))}
+                    </Pie>
+                    <RTooltip
+                      contentStyle={TOOLTIP_STYLE}
+                      formatter={(v: unknown) => [fmtNum(Number(v)), '']}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="text-center">
+                    <div className="font-mono text-lg font-bold text-white tabular-nums leading-none">
+                      {fmtNum(deviceTotal)}
+                    </div>
+                    <div className="text-[9px] uppercase tracking-widest text-white/30 mt-0.5">
+                      sessions
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-center gap-5 mt-2">
+                {deviceChartData.map((d, i) => {
+                  const pct = deviceTotal > 0 ? ((d.value / deviceTotal) * 100).toFixed(1) : '0.0'
+                  const Icon = DEVICE_ICONS[i]
+                  return (
+                    <div key={d.name} className="flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: DEVICE_COLORS[i] }} />
+                        <Icon size={11} className="text-white/40" />
+                        <span className="text-[11px] text-white/50">{DEVICE_LABELS[i]}</span>
+                      </div>
+                      <span className="font-mono text-[13px] font-semibold text-white/70">{pct}%</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Section 5: Top Countries ─────────────────────────────────────── */}
+      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+        <SectionHeader icon={<Globe size={13} />} label="Top Countries" />
+
+        {loading ? (
+          <div className="space-y-0">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 py-3 border-b border-white/[0.04] animate-pulse">
+                <div className="w-6 h-4 rounded bg-white/[0.06]" />
+                <div className="h-2.5 w-28 rounded bg-white/[0.06] flex-1" />
+                <div className="h-2.5 w-12 rounded bg-white/[0.04]" />
+                <div className="h-2.5 w-10 rounded bg-white/[0.04]" />
+              </div>
+            ))}
+          </div>
+        ) : countries.length === 0 ? (
+          <div className="h-[120px] flex items-center justify-center text-white/20 text-sm">
+            No country data yet — IP lookup activates on new pageviews
+          </div>
+        ) : (
+          <div>
+            <div className="flex items-center gap-4 pb-2 mb-1 border-b border-white/[0.06]">
+              <span className="text-[10px] uppercase tracking-widest text-white/25 w-6 text-center">#</span>
+              <span className="text-[10px] uppercase tracking-widest text-white/25 flex-1">Country</span>
+              <span className="text-[10px] uppercase tracking-widest text-white/25 w-16 text-right">Visitors</span>
+              <span className="text-[10px] uppercase tracking-widest text-white/25 w-12 text-right">Share</span>
+            </div>
+            {countries.map((c, i) => {
+              const pct = countryTotal > 0 ? ((c.count / countryTotal) * 100).toFixed(1) : '0.0'
+              return (
+                <div
+                  key={c.country}
+                  className="flex items-center gap-4 py-2.5 border-b border-white/[0.04] last:border-0 group"
+                >
+                  <span className="text-[11px] text-white/20 w-6 text-center tabular-nums font-mono">
+                    {i + 1}
+                  </span>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-base leading-none select-none">{countryFlag(c.country)}</span>
+                    <span className="text-[13px] text-white/70 truncate">{countryName(c.country)}</span>
+                  </div>
+                  <span className="font-mono text-[13px] font-semibold text-white/60 tabular-nums w-16 text-right">
+                    {fmtNum(c.count)}
+                  </span>
+                  <div className="w-12 flex items-center justify-end gap-1.5">
+                    <span className="font-mono text-[11px] text-white/35 tabular-nums">{pct}%</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Empty state for entire dashboard */}
+      {!loading && !hasData && (
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-12 text-center">
+          <TrendingUp className="w-8 h-8 text-white/10 mx-auto mb-3" />
+          <p className="text-white/30 text-sm">No data for this period</p>
+          <p className="text-white/15 text-xs mt-1">Add the tracking script to your funnel pages to start collecting data</p>
+        </div>
+      )}
 
     </div>
   )
