@@ -1,7 +1,38 @@
 import MetricsDashboard from './MetricsDashboard'
+import TrackingScriptPanel from './TrackingScriptPanel'
 import { TrendingUp } from 'lucide-react'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
-export default function MetricsPage() {
+async function getLocationId(): Promise<string | null> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+
+    const admin = createAdminClient()
+    const { data: profile } = await admin
+      .from('creator_profiles')
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (!profile) return null
+
+    const { data: integration } = await admin
+      .from('integrations')
+      .select('ghl_location_id')
+      .eq('creator_id', profile.id)
+      .maybeSingle()
+
+    return (integration?.ghl_location_id as string | null) ?? null
+  } catch {
+    return null
+  }
+}
+
+export default async function MetricsPage() {
+  const locationId = await getLocationId()
+
   return (
     <div className="p-8">
       <div className="flex items-center gap-3 mb-8">
@@ -13,6 +44,8 @@ export default function MetricsPage() {
           <p className="text-sm text-[#9ca3af]">Full-funnel performance — pages to close</p>
         </div>
       </div>
+
+      <TrackingScriptPanel locationId={locationId} />
       <MetricsDashboard />
     </div>
   )
