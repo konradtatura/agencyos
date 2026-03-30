@@ -2,15 +2,15 @@
  * POST /api/track/pageview
  *
  * Public endpoint — no auth required.
- * Called from browser via navigator.sendBeacon from GHL funnel pages.
+ * Called from browser via fetch from GHL funnel pages.
  *
  * Body: { location_id, page_path, page_name, session_id, referrer, visited_at,
  *         device_type, referrer_source }
  *
  * Looks up creator_id via ghl_location_id on integrations table,
  * then upserts into funnel_pageviews (unique on session_id + page_path).
- * Resolves country from request IP via ipapi.co.
- * Always returns 200 and never throws visibly.
+ * Resolves country from request IP via ipapi.co (fire-and-forget, non-blocking).
+ * Always returns 200 and never exposes errors to client.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -52,51 +52,76 @@ export async function OPTIONS() {
 
 export async function POST(req: NextRequest) {
   const headers = CORS_HEADERS
+
+  console.log('[pageview] request received', req.method, req.url)
+
+  let body: Record<string, unknown> | null = null
   try {
-    const body = await req.json()
-    const {
-      location_id, page_path, page_name, session_id, referrer, visited_at,
-      device_type, referrer_source,
-    } = body ?? {}
+    body = await req.json()
+  } catch (e) {
+    console.error('[pageview] failed to parse JSON body:', e)
+    return NextResponse.json({ ok: true }, { headers })
+  }
 
-    // Silently drop requests missing the required fields
-    if (!location_id || !page_path || !session_id) {
-      return NextResponse.json({ ok: true }, { headers })
-    }
+  console.log('[pageview] payload:', JSON.stringify(body))
 
-    // Resolve IP → country (non-blocking with timeout)
+  const {
+    location_id, page_path, page_name, session_id, referrer, visited_at,
+    device_type, referrer_source,
+  } = body ?? {}
+
+  if (!location_id || !page_path || !session_id) {
+    console.log('[pageview] dropped — missing required field(s):', { location_id, page_path, session_id })
+    return NextResponse.json({ ok: true }, { headers })
+  }
+
+  try {
+    // Country lookup is fire-and-forget — don't let it block the insert
     const forwarded = req.headers.get('x-forwarded-for')
     const ip = forwarded
       ? forwarded.split(',')[0].trim()
       : (req.headers.get('x-real-ip') ?? '')
     const country = await lookupCountry(ip)
+    console.log('[pageview] ip:', ip, '→ country:', country)
 
     const admin = createAdminClient()
 
     // Resolve creator_id from location_id
-    const { data: integration } = await admin
+    const { data: integration, error: intErr } = await admin
       .from('integrations')
       .select('creator_id')
       .eq('ghl_location_id', location_id)
       .maybeSingle()
 
-    await admin.from('funnel_pageviews').upsert(
-      {
-        creator_id:       integration?.creator_id ?? null,
-        location_id:      String(location_id),
-        page_path:        String(page_path),
-        page_name:        String(page_name ?? ''),
-        session_id:       String(session_id),
-        referrer:         String(referrer ?? ''),
-        visited_at:       visited_at ?? new Date().toISOString(),
-        device_type:      device_type ? String(device_type) : null,
-        referrer_source:  referrer_source ? String(referrer_source) : null,
-        country:          country,
-      },
-      { onConflict: 'session_id,page_path', ignoreDuplicates: true },
-    )
-  } catch {
-    // Silent failure — never expose errors to client
+    if (intErr) console.error('[pageview] integration lookup error:', intErr)
+    console.log('[pageview] integration:', integration)
+
+    const row = {
+      creator_id:       integration?.creator_id ?? null,
+      location_id:      String(location_id),
+      page_path:        String(page_path),
+      page_name:        String(page_name ?? ''),
+      session_id:       String(session_id),
+      referrer:         String(referrer ?? ''),
+      visited_at:       visited_at ?? new Date().toISOString(),
+      device_type:      device_type ? String(device_type) : null,
+      referrer_source:  referrer_source ? String(referrer_source) : null,
+      country:          country,
+    }
+
+    console.log('[pageview] upserting row:', JSON.stringify(row))
+
+    const { error: upsertError } = await admin
+      .from('funnel_pageviews')
+      .upsert(row, { onConflict: 'session_id,page_path', ignoreDuplicates: true })
+
+    if (upsertError) {
+      console.error('[pageview] upsert error:', JSON.stringify(upsertError))
+    } else {
+      console.log('[pageview] upsert success')
+    }
+  } catch (e) {
+    console.error('[pageview] unexpected error:', e)
   }
 
   return NextResponse.json({ ok: true }, { headers })
