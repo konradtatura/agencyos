@@ -131,7 +131,7 @@ interface RawLead {
 }
 
 function computeStats(leads: RawLead[]): PeriodStats {
-  const booked     = leads.length
+  const booked     = leads.filter(l => l.stage === 'call_booked' || l.booked_at !== null).length
   const closed_won = leads.filter(l => l.stage === 'closed_won').length
   const closed_lost = leads.filter(l => l.stage === 'closed_lost').length
   const no_show    = leads.filter(l => l.stage === 'no_show').length

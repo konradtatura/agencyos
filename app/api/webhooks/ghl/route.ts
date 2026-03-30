@@ -21,10 +21,17 @@ interface GhlPayload {
   email?: string
   phone?: string
 
-  // Appointment fields
+  // Appointment fields (flat — older GHL workflows)
   appointment_id?: string
-  start_time?: string                // ISO datetime of the booked call
+  start_time?: string
   scheduled_at?: string
+
+  // Appointment fields (nested calendar object — current GHL workflows)
+  calendar?: {
+    startTime?: string
+    id?: string
+    title?: string
+  }
 
   // Team assignment
   assigned_user_id?: string          // GHL user id of the closer
@@ -124,7 +131,8 @@ export async function POST(req: NextRequest) {
   const email = body.email?.toLowerCase().trim() ?? null
   const phone = body.phone ?? null
   const ghlContactId = body.contact_id ?? body.id ?? null
-  const bookedAt = body.start_time ?? body.scheduled_at ?? null
+  const rawStartTime = body.calendar?.startTime ?? body.start_time ?? body.scheduled_at ?? null
+  const bookedAt = rawStartTime ? new Date(rawStartTime).toISOString() : null
   const tallyAnswers = extractTallyAnswers(body)
 
   // --- Upsert: check if lead with same email already exists for this creator ---
