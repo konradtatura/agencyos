@@ -2,7 +2,7 @@
  * GHL funnel tracking script.
  *
  * Paste this into every GHL funnel page's <head> or custom code block.
- * - Fires immediately (no DOMContentLoaded wait) to avoid GHL blocking events
+ * - Handles document.readyState === 'complete' (GHL pages load script after DOM is ready)
  * - Uses fetch + keepalive instead of sendBeacon to avoid CORS issues
  * - credentials: 'omit' prevents preflight failures on cross-origin requests
  */
@@ -45,22 +45,30 @@ export function getTrackingScript(locationId: string): string {
   var startTime = Date.now();
   var sid = getSessionId();
 
-  fetch(BASE_URL + '/api/track/pageview', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'omit',
-    keepalive: true,
-    body: JSON.stringify({
-      location_id: LOCATION_ID,
-      page_path: window.location.pathname,
-      page_name: document.title || window.location.pathname,
-      session_id: sid,
-      referrer: document.referrer || '',
-      visited_at: new Date().toISOString(),
-      device_type: getDeviceType(),
-      referrer_source: getReferrerSource(),
-    })
-  }).catch(function () {});
+  function runTracking() {
+    fetch(BASE_URL + '/api/track/pageview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      keepalive: true,
+      body: JSON.stringify({
+        location_id: LOCATION_ID,
+        page_path: window.location.pathname,
+        page_name: document.title || window.location.pathname,
+        session_id: sid,
+        referrer: document.referrer || '',
+        visited_at: new Date().toISOString(),
+        device_type: getDeviceType(),
+        referrer_source: getReferrerSource(),
+      })
+    }).catch(function () {});
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', runTracking);
+  } else {
+    runTracking();
+  }
 
   window.addEventListener('beforeunload', function () {
     var seconds = Math.round((Date.now() - startTime) / 1000);
