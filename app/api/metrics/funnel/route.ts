@@ -202,7 +202,6 @@ export async function GET(req: NextRequest) {
     sessions: Set<string>
     pagePaths: Set<string>
     totalViews: number
-    sumTime: number
     devices: DeviceBreakdown
     referrers: Map<string, number>
   }
@@ -214,14 +213,12 @@ export async function GET(req: NextRequest) {
       sessions: new Set(),
       pagePaths: new Set(),
       totalViews: 0,
-      sumTime: 0,
       devices: { desktop: 0, mobile: 0, tablet: 0 },
       referrers: new Map(),
     }
     agg.sessions.add(row.session_id)
     agg.pagePaths.add(row.page_path)
     agg.totalViews++
-    agg.sumTime += new Date(row.visited_at).getTime()
 
     const dt = (row.device_type as string | null) ?? 'desktop'
     if (dt === 'mobile') agg.devices.mobile++
@@ -234,10 +231,8 @@ export async function GET(req: NextRequest) {
     pageMap.set(name, agg)
   }
 
-  // Sort steps by average visited_at ascending (funnel order)
-  const sorted = [...pageMap.entries()].sort((a, b) => {
-    return (a[1].sumTime / a[1].totalViews) - (b[1].sumTime / b[1].totalViews)
-  })
+  // Sort steps by unique visitors descending — most-visited page is top of funnel
+  const sorted = [...pageMap.entries()].sort((a, b) => b[1].sessions.size - a[1].sessions.size)
 
   const steps: FunnelStep[] = sorted.map(([page_name, agg]) => {
     const times: number[] = []

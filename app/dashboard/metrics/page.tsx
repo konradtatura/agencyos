@@ -22,6 +22,8 @@ async function getLocationId(): Promise<string | null> {
       .from('integrations')
       .select('ghl_location_id')
       .eq('creator_id', profile.id)
+      .eq('platform', 'ghl')
+      .not('ghl_location_id', 'is', null)
       .maybeSingle()
 
     return (integration?.ghl_location_id as string | null) ?? null
