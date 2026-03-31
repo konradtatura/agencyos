@@ -40,7 +40,8 @@
       "Bash(grep -r \"navigator\\\\|window\\\\.\" /Users/konradtatura/agencyos/app --include=*.tsx --include=*.ts)",
       "Bash(find /Users/konradtatura/agencyos/app/api -type f -name *.ts)",
       "Bash(node -e \"const l = require\\(''''lucide-react''''\\); console.log\\([''''Monitor'''',''''Smartphone'''',''''Tablet'''',''''Globe'''',''''TrendingUp'''',''''TrendingDown'''',''''Users'''',''''Phone'''',''''Eye'''',''''DollarSign'''',''''ArrowUpRight'''',''''ArrowDownRight'''',''''Minus''''].filter\\(k => k in l\\).join\\('''', ''''\\)\\)\")",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(grep -E \"\\\\.ts$\")"
     ]
   }
 }

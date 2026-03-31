@@ -9,6 +9,7 @@ import type {
   PlatformFilter,
 } from '@/lib/content-pipeline/types'
 import { CONTENT_STAGES } from '@/lib/content-pipeline/types'
+import { exportPipelineCSV } from '@/lib/content-pipeline/exportPipelineCSV'
 import { Skeleton } from '@/components/ui/skeleton'
 import KanbanColumn from './KanbanColumn'
 import ContentDetailSheet from './ContentDetailSheet'
@@ -198,7 +199,11 @@ export default function KanbanBoard() {
     <>
       {/* Filter bar */}
       <div style={{ marginBottom: 20 }}>
-        <FilterBar value={filter} onChange={setFilter} />
+        <FilterBar
+          value={filter}
+          onChange={setFilter}
+          onExport={() => exportPipelineCSV(ideas, filter)}
+        />
       </div>
 
       {/* Kanban */}
