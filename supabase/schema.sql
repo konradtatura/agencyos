@@ -439,6 +439,8 @@ CREATE TABLE IF NOT EXISTS public.instagram_account_snapshots (
   profile_views_30d     integer,
   accounts_engaged_7d   integer,
   accounts_engaged_30d  integer,
+  website_clicks_7d     integer,
+  website_clicks_30d    integer,
   created_at       timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT instagram_account_snapshots_creator_date_unique UNIQUE (creator_id, date)
@@ -451,7 +453,9 @@ CREATE TABLE IF NOT EXISTS public.instagram_account_snapshots (
 --   ADD COLUMN IF NOT EXISTS profile_views_7d     integer,
 --   ADD COLUMN IF NOT EXISTS profile_views_30d    integer,
 --   ADD COLUMN IF NOT EXISTS accounts_engaged_7d  integer,
---   ADD COLUMN IF NOT EXISTS accounts_engaged_30d integer;
+--   ADD COLUMN IF NOT EXISTS accounts_engaged_30d integer,
+--   ADD COLUMN IF NOT EXISTS website_clicks_7d    integer,
+--   ADD COLUMN IF NOT EXISTS website_clicks_30d   integer;
 
 CREATE INDEX IF NOT EXISTS instagram_account_snapshots_creator_id_idx   ON public.instagram_account_snapshots (creator_id);
 CREATE INDEX IF NOT EXISTS instagram_account_snapshots_creator_date_idx ON public.instagram_account_snapshots (creator_id, date DESC);

@@ -272,14 +272,16 @@ export async function syncAccountStats(creatorId: string): Promise<void> {
   // profile_views / accounts_engaged: total_value gives us one aggregate per window
   const profileViews7d  = totalValueOf(totalValue7d,  'profile_views')
   const profileViews30d = totalValueOf(totalValue30d, 'profile_views')
-  const engaged7d       = totalValueOf(totalValue7d,  'accounts_engaged')
-  const engaged30d      = totalValueOf(totalValue30d, 'accounts_engaged')
-  // website_clicks fetched but no KPI card yet
+  const engaged7d         = totalValueOf(totalValue7d,  'accounts_engaged')
+  const engaged30d        = totalValueOf(totalValue30d, 'accounts_engaged')
+  const websiteClicks7d   = totalValueOf(totalValue7d,  'website_clicks')
+  const websiteClicks30d  = totalValueOf(totalValue30d, 'website_clicks')
 
   log('syncAccountStats', 'Period totals extracted', {
     reach7d, reach30d,
     profileViews7d, profileViews30d,
     engaged7d, engaged30d,
+    websiteClicks7d, websiteClicks30d,
   })
 
   // ── Step 4: Pivot daily data and upsert snapshots ─────────────────────────
@@ -375,6 +377,8 @@ export async function syncAccountStats(creatorId: string): Promise<void> {
         profile_views_30d:    profileViews30d,
         accounts_engaged_7d:  engaged7d,
         accounts_engaged_30d: engaged30d,
+        website_clicks_7d:    websiteClicks7d,
+        website_clicks_30d:   websiteClicks30d,
         ...(followerSource ? { follower_source: followerSource } : {}),
       },
       { onConflict: 'creator_id,date' },

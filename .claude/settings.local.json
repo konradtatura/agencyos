@@ -44,7 +44,8 @@
       "Bash(grep -E \"\\\\.ts$\")",
       "Bash(find /Users/konradtatura/agencyos -type f -name \"*.sql\" -exec grep -l \"post_transcript\" {} \\\\;)",
       "Bash(find /Users/konradtatura/agencyos -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" -o -name \"*.sql\" \\\\\\) ! -path \"*/node_modules/*\" -exec grep -l \"post_transcripts\\\\|post_transcript\" {} \\\\;)",
-      "Bash(cat /Users/konradtatura/agencyos/supabase/migrations/*.sql)"
+      "Bash(cat /Users/konradtatura/agencyos/supabase/migrations/*.sql)",
+      "Bash(grep -l \"instagram_account_snapshots\" /Users/konradtatura/agencyos/supabase/migrations/*.sql)"
     ]
   }
 }

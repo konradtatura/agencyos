@@ -5,6 +5,9 @@ import SyncBar from './sync-bar'
 import InstagramTabs from './instagram-tabs'
 import KpiGrid, { type IgAccount, type Snapshot } from './kpi-grid'
 import FollowerChart from './follower-chart'
+import ReachChart from './reach-chart'
+import EngagementRateChart, { type PostEngPoint } from './engagement-rate-chart'
+import PostingCadenceChart, { type CadencePoint } from './posting-cadence-chart'
 import NetFollowersChart from './net-followers-chart'
 import FollowerSourceBreakdown from './follower-source-breakdown'
 
@@ -75,13 +78,114 @@ export default async function InstagramPage() {
   const { data: rawSnapshots } = (profile && connected && igAccount)
     ? await admin
         .from('instagram_account_snapshots')
-        .select('date, followers_count, reach, unfollows, reach_7d, reach_30d, profile_views_7d, profile_views_30d, accounts_engaged_7d, accounts_engaged_30d, follower_source')
+        .select('date, followers_count, reach, unfollows, reach_7d, reach_30d, profile_views_7d, profile_views_30d, accounts_engaged_7d, accounts_engaged_30d, website_clicks_7d, website_clicks_30d, follower_source')
         .eq('creator_id', profile.id)
         .order('date', { ascending: false })
         .limit(90)
     : { data: null }
 
   const snapshots: Snapshot[] = (rawSnapshots ?? []) as Snapshot[]
+
+  // ── Post engagement + cadence data ───────────────────────────────────────
+  let engData:      PostEngPoint[] = []
+  let engAllTimeAvg: number | null = null
+  let cadenceData:  CadencePoint[] = []
+  let cadenceAvg    = 0
+
+  if (profile && connected && igAccount) {
+    const { data: posts } = await admin
+      .from('instagram_posts')
+      .select('id, posted_at')
+      .eq('creator_id', profile.id)
+      .order('posted_at', { ascending: false })
+
+    if (posts && posts.length > 0) {
+      const postIds = posts.map((p) => p.id)
+
+      const { data: metricsRaw } = await admin
+        .from('instagram_post_metrics')
+        .select('post_id, reach, like_count, comments_count, saved, shares, synced_at')
+        .in('post_id', postIds)
+        .order('synced_at', { ascending: false })
+
+      // Keep only the latest metrics snapshot per post
+      const metricsMap = new Map<string, { reach: number | null; like_count: number | null; comments_count: number | null; saved: number | null; shares: number | null }>()
+      for (const m of metricsRaw ?? []) {
+        if (!metricsMap.has(m.post_id)) metricsMap.set(m.post_id, m)
+      }
+
+      // Per-post engagement rate + ISO week start (Monday)
+      const allRates: number[] = []
+      const weekBuckets = new Map<string, number[]>()
+
+      for (const post of posts) {
+        const m = metricsMap.get(post.id)
+        if (!m || !m.reach || m.reach === 0) continue
+        const interactions =
+          (m.like_count ?? 0) + (m.comments_count ?? 0) + (m.saved ?? 0) + (m.shares ?? 0)
+        const rate = (interactions / m.reach) * 100
+
+        allRates.push(rate)
+
+        // ISO week start = Monday of the post's week
+        const d = new Date(post.posted_at)
+        const dow = d.getUTCDay() // 0=Sun
+        const toMonday = dow === 0 ? 6 : dow - 1
+        d.setUTCDate(d.getUTCDate() - toMonday)
+        const weekStart = d.toISOString().split('T')[0]
+
+        const bucket = weekBuckets.get(weekStart) ?? []
+        bucket.push(rate)
+        weekBuckets.set(weekStart, bucket)
+      }
+
+      // All-time average
+      if (allRates.length > 0) {
+        engAllTimeAvg = allRates.reduce((s, r) => s + r, 0) / allRates.length
+      }
+
+      // Build sorted weekly engagement points (oldest → newest)
+      engData = Array.from(weekBuckets.entries())
+        .map(([weekStart, rates]) => ({
+          weekStart,
+          avgEngRate: rates.reduce((s, r) => s + r, 0) / rates.length,
+          postCount:  rates.length,
+        }))
+        .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+
+      // ── Posting cadence: last 12 weeks, one bar per week ───────────────
+      // Find Monday of the current week
+      const now = new Date()
+      const todayDow = now.getUTCDay()
+      const daysToMonday = todayDow === 0 ? 6 : todayDow - 1
+      const thisMonday = new Date(Date.UTC(
+        now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysToMonday,
+      ))
+
+      // Generate 12 buckets (index 0 = 11 weeks ago, index 11 = this week)
+      const cadenceMap = new Map<string, number>()
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(thisMonday)
+        d.setUTCDate(thisMonday.getUTCDate() - i * 7)
+        cadenceMap.set(d.toISOString().split('T')[0], 0)
+      }
+
+      // Count posts per bucket
+      for (const post of posts) {
+        const d = new Date(post.posted_at)
+        const pdow = d.getUTCDay()
+        const pToMonday = pdow === 0 ? 6 : pdow - 1
+        d.setUTCDate(d.getUTCDate() - pToMonday)
+        d.setUTCHours(0, 0, 0, 0)
+        const key = d.toISOString().split('T')[0]
+        if (cadenceMap.has(key)) cadenceMap.set(key, cadenceMap.get(key)! + 1)
+      }
+
+      cadenceData = Array.from(cadenceMap.entries())
+        .map(([weekStart, count]) => ({ weekStart, count }))
+      cadenceAvg = cadenceData.reduce((s, p) => s + p.count, 0) / cadenceData.length
+    }
+  }
 
   const hasData  = !!igAccount
   const autoSync = connected && !hasData
@@ -212,6 +316,15 @@ export default async function InstagramPage() {
             snapshots={snapshots}
             totalFollowers={igAccount.followers_count ?? null}
           />
+
+          {/* ── Section 3b: Daily Reach Chart ──────────────────────────── */}
+          <ReachChart snapshots={snapshots} />
+
+          {/* ── Section 3c: Engagement Rate + Posting Cadence ─────────── */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <EngagementRateChart data={engData} allTimeAvg={engAllTimeAvg} />
+            <PostingCadenceChart data={cadenceData} avgPerWeek={cadenceAvg} />
+          </div>
 
           {/* ── Section 4: Net Followers + Source ──────────────────────── */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

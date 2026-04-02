@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import StatCard from '@/components/ui/stat-card'
-import { Users, Eye, BarChart2, Heart, Info } from 'lucide-react'
+import { Users, Eye, BarChart2, Heart, MousePointerClick, TrendingUp, Info } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,6 +27,8 @@ export interface Snapshot {
   profile_views_30d:    number | null
   accounts_engaged_7d:  number | null
   accounts_engaged_30d: number | null
+  website_clicks_7d:    number | null
+  website_clicks_30d:   number | null
   // Follower source breakdown — populated on today's row if available.
   // Keys are IG follow_type dimension values: FEED, REEL, PROFILE, HASHTAG, etc.
   follower_source:      Record<string, number> | null
@@ -113,7 +115,8 @@ function KpiCard({ title, info, compute, icon, account, snapshots, loading }: Kp
       s.followers_count     ?? s.reach              ??
       s.reach_7d            ?? s.reach_30d          ??
       s.profile_views_7d    ?? s.profile_views_30d  ??
-      s.accounts_engaged_7d ?? s.accounts_engaged_30d
+      s.accounts_engaged_7d ?? s.accounts_engaged_30d ??
+      s.website_clicks_7d   ?? s.website_clicks_30d
     ) !== null
   )
   const displayChange = hasPreviousPeriod ? change : undefined
@@ -200,13 +203,56 @@ const METRICS = [
       return { value: fmtNum(cur), change: prev !== null ? pctChange(cur ?? 0, prev) : undefined }
     },
   },
+  {
+    title: 'Website Clicks',
+    info:  ROLLING_NOTE,
+    icon:  MousePointerClick,
+    compute(snapshots: Snapshot[], range: Range) {
+      const latest = snapshots[0]
+      const prior  = snapshots[range] ?? null
+      const cur  = range === 7 ? (latest?.website_clicks_7d  ?? null) : (latest?.website_clicks_30d  ?? null)
+      const prev = range === 7 ? (prior?.website_clicks_7d   ?? null) : (prior?.website_clicks_30d   ?? null)
+      return { value: fmtNum(cur), change: prev !== null ? pctChange(cur ?? 0, prev) : undefined }
+    },
+  },
+  {
+    title: 'Growth Rate',
+    info:  'Net follower gain ÷ follower count at the start of the period',
+    icon:  TrendingUp,
+    compute(snapshots: Snapshot[], range: Range, account: IgAccount) {
+      const curSlice  = snapshots.slice(0, range)
+      const prevSlice = snapshots.slice(range, range * 2)
+      const curNet    = sumField(curSlice,  'followers_count')
+      const prevNet   = sumField(prevSlice, 'followers_count')
+
+      // Follower count at the start of the current period
+      const base = (account.followers_count ?? 0) - curNet
+      if (base <= 0) return { value: '—' }
+
+      const curRate = (curNet / base) * 100
+
+      // Follower count at the start of the previous period
+      const prevBase = base - prevNet
+      const prevRate = prevBase > 0 ? (prevNet / prevBase) * 100 : null
+
+      const sign  = curRate >= 0 ? '+' : ''
+      const value = `${sign}${curRate.toFixed(1)}%`
+
+      // Delta in percentage points (1 dp) vs the prior equivalent period
+      const change = prevRate !== null
+        ? parseFloat((curRate - prevRate).toFixed(1))
+        : undefined
+
+      return { value, change }
+    },
+  },
 ] as const
 
 // ── Grid ──────────────────────────────────────────────────────────────────────
 
 export default function KpiGrid({ account, snapshots, loading = false }: Props) {
   return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {METRICS.map((metric) => (
         <KpiCard
           key={metric.title}
