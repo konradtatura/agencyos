@@ -33,6 +33,7 @@ export interface PostRow {
   like_count:          number | null
   comments_count:      number | null
   total_interactions:  number | null
+  profile_visits:      number | null
   follows_count:       number | null
   replays_count:           number | null
   avg_watch_time_ms:       number | null   // stored in milliseconds; divide by 1000 for display
@@ -62,6 +63,7 @@ export interface AccountAverages {
   engagement_rate:    number | null
   save_rate:          number | null
   share_rate:         number | null
+  profile_visit_rate: number | null
   replay_rate:        number | null
   avg_watch_rate:     number | null
   hook_rate:          number | null
@@ -72,7 +74,7 @@ type ManualField = 'follows_count' | 'skip_rate' | 'avg_watch_time_ms'
 type SortKey =
   | 'posted_at' | 'views' | 'reach' | 'like_count'
   | 'comments_count' | 'saved' | 'shares'
-  | 'engagement_rate' | 'save_rate' | 'replay_rate' | 'avg_watch_rate' | 'hook_rate'
+  | 'engagement_rate' | 'save_rate' | 'profile_visit_rate' | 'replay_rate' | 'avg_watch_rate' | 'hook_rate'
 
 type SortDir = 'asc' | 'desc'
 
@@ -100,6 +102,12 @@ export function calcSaveRate(row: PostRow): number | null {
 export function calcShareRate(row: PostRow): number | null {
   if (!row.reach || row.shares == null) return null
   return (row.shares / row.reach) * 100
+}
+
+/** Profile visits ÷ Reach × 100. % of reached accounts who visited the profile. */
+export function calcProfileVisitRate(row: PostRow): number | null {
+  if (!row.reach || row.profile_visits == null) return null
+  return (row.profile_visits / row.reach) * 100
 }
 
 /** Views ÷ Reach. Can exceed 100% when people rewatch. */
@@ -144,6 +152,7 @@ export function computeAverages(rows: PostRow[]): AccountAverages {
     engagement_rate:    avgOf(rows.map((r) => calcEngagementRate(r))),
     save_rate:          avgOf(rows.map((r) => calcSaveRate(r))),
     share_rate:         avgOf(rows.map((r) => calcShareRate(r))),
+    profile_visit_rate: avgOf(rows.map((r) => calcProfileVisitRate(r))),
     replay_rate:        avgOf(reels.map((r) => calcReplayRate(r))),
     avg_watch_rate:     avgOf(reels.map((r) => calcAvgWatchRate(r))),
     hook_rate:          avgOf(reels.map((r) => calcHookRate(r))),
@@ -538,9 +547,10 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
         case 'comments_count': av = a.comments_count; bv = b.comments_count; break
         case 'saved':          av = a.saved;          bv = b.saved;          break
         case 'shares':         av = a.shares;         bv = b.shares;         break
-        case 'engagement_rate': av = calcEngagementRate(a); bv = calcEngagementRate(b); break
-        case 'save_rate':       av = calcSaveRate(a);         bv = calcSaveRate(b);         break
-        case 'replay_rate':     av = calcReplayRate(a);       bv = calcReplayRate(b);       break
+        case 'engagement_rate':    av = calcEngagementRate(a);    bv = calcEngagementRate(b);    break
+        case 'save_rate':          av = calcSaveRate(a);          bv = calcSaveRate(b);          break
+        case 'profile_visit_rate': av = calcProfileVisitRate(a);  bv = calcProfileVisitRate(b);  break
+        case 'replay_rate':        av = calcReplayRate(a);        bv = calcReplayRate(b);        break
         case 'avg_watch_rate':  av = calcAvgWatchRate(a);     bv = calcAvgWatchRate(b);     break
         case 'hook_rate':       av = calcHookRate(a);          bv = calcHookRate(b);          break
       }
@@ -1182,8 +1192,9 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
               <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[#6b7280]">Avg Watch</th>
               <Th col="avg_watch_rate"  sortKey={sortKey} sortDir={sortDir} onClick={handleSort} title="Avg watch time ÷ video duration. How much of the reel people watched on average.">Avg Watch %</Th>
               <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[#6b7280]">Skip Rate</th>
-              <Th col="engagement_rate" sortKey={sortKey} sortDir={sortDir} onClick={handleSort}>Eng. Rate</Th>
-              <Th col="save_rate"       sortKey={sortKey} sortDir={sortDir} onClick={handleSort}>Save Rate</Th>
+              <Th col="engagement_rate"    sortKey={sortKey} sortDir={sortDir} onClick={handleSort}>Eng. Rate</Th>
+              <Th col="save_rate"          sortKey={sortKey} sortDir={sortDir} onClick={handleSort}>Save Rate</Th>
+              <Th col="profile_visit_rate" sortKey={sortKey} sortDir={sortDir} onClick={handleSort} title="Profile visits ÷ Reach. % of reached accounts who visited your profile.">PV Rate</Th>
               <Th col="replay_rate"     sortKey={sortKey} sortDir={sortDir} onClick={handleSort} title="Views ÷ Reach. Above 100% means people are rewatching.">Replay Rate</Th>
               <Th col="hook_rate"       sortKey={sortKey} sortDir={sortDir} onClick={handleSort} title="Estimated % of accounts who saw this reel and chose to play it. Approximated from API data (views ÷ reach).">Hook Rate</Th>
             </tr>
@@ -1195,14 +1206,15 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
               <EmptyState colSpan={colSpan} />
             ) : (
               paginated.map((row) => {
-                const isReel       = row.media_type === 'VIDEO'
-                const isSelected   = selectedIds.has(row.id)
-                const thumb        = row.thumbnail_url ?? row.media_url
-                const engRate      = calcEngagementRate(row)
-                const saveRate     = calcSaveRate(row)
-                const replayRate   = calcReplayRate(row)
-                const avgWatchRate = calcAvgWatchRate(row)
-                const hookRate     = calcHookRate(row)
+                const isReel          = row.media_type === 'VIDEO'
+                const isSelected      = selectedIds.has(row.id)
+                const thumb           = row.thumbnail_url ?? row.media_url
+                const engRate         = calcEngagementRate(row)
+                const saveRate        = calcSaveRate(row)
+                const profileVisitRate = calcProfileVisitRate(row)
+                const replayRate      = calcReplayRate(row)
+                const avgWatchRate    = calcAvgWatchRate(row)
+                const hookRate        = calcHookRate(row)
 
                 return (
                   <tr
@@ -1443,6 +1455,9 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                     </td>
 
                     <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">{fmtPct(saveRate)}</td>
+
+                    {/* Profile Visit Rate */}
+                    <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">{fmtPct(profileVisitRate)}</td>
 
                     {/* Replay Rate — views/reach, can exceed 100% */}
                     <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">

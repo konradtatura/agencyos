@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { X, ExternalLink, Play, Loader2, Copy, Check, Save } from 'lucide-react'
 import type { ManualMetricField } from '@/app/api/instagram/posts/manual-metrics/route'
 import type { PostRow, AccountAverages } from './posts-table'
-import { calcReplayRate, calcAvgWatchRate, calcHookRate } from './posts-table'
+import { calcReplayRate, calcAvgWatchRate, calcHookRate, calcProfileVisitRate } from './posts-table'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -253,9 +253,10 @@ export default function PostDetailPanel({
 
   const isReel      = post.media_type === 'VIDEO'
   const thumb       = post.thumbnail_url ?? post.media_url
-  const engRate     = post.reach ? ((post.like_count ?? 0) + (post.comments_count ?? 0) + (post.saved ?? 0) + (post.shares ?? 0)) / post.reach * 100 : null
-  const saveRate    = post.reach && post.saved  != null ? post.saved  / post.reach * 100 : null
-  const shareRate   = post.reach && post.shares != null ? post.shares / post.reach * 100 : null
+  const engRate         = post.reach ? ((post.like_count ?? 0) + (post.comments_count ?? 0) + (post.saved ?? 0) + (post.shares ?? 0)) / post.reach * 100 : null
+  const saveRate        = post.reach && post.saved  != null ? post.saved  / post.reach * 100 : null
+  const shareRate       = post.reach && post.shares != null ? post.shares / post.reach * 100 : null
+  const profileVisitRateVal = calcProfileVisitRate(post)
   const replayRateVal   = calcReplayRate(post)
   const avgWatchRateVal = calcAvgWatchRate(post)
   const hookRateVal     = calcHookRate(post)
@@ -270,9 +271,11 @@ export default function PostDetailPanel({
     { label: 'Comments',    value: fmtNum(post.comments_count),   compare: vsAvg(post.comments_count, averages.comments_count) },
     { label: 'Saves',       value: fmtNum(post.saved),            compare: vsAvg(post.saved,          averages.saved)          },
     { label: 'Shares',      value: fmtNum(post.shares),           compare: vsAvg(post.shares,         averages.shares)         },
-    { label: 'Eng. Rate',   value: fmtPct(engRate),               compare: vsAvg(engRate,             averages.engagement_rate) },
-    { label: 'Save Rate',   value: fmtPct(saveRate),              compare: vsAvg(saveRate,            averages.save_rate)      },
-    { label: 'Share Rate',  value: fmtPct(shareRate),             compare: vsAvg(shareRate,           averages.share_rate)     },
+    { label: 'Eng. Rate',   value: fmtPct(engRate),               compare: vsAvg(engRate,             averages.engagement_rate)    },
+    { label: 'Save Rate',   value: fmtPct(saveRate),              compare: vsAvg(saveRate,            averages.save_rate)          },
+    { label: 'Share Rate',  value: fmtPct(shareRate),             compare: vsAvg(shareRate,           averages.share_rate)         },
+    { label: 'PV Rate',     value: fmtPct(profileVisitRateVal),   compare: vsAvg(profileVisitRateVal, averages.profile_visit_rate),
+      tooltip: 'Profile visits ÷ Reach. % of accounts reached who visited your profile after seeing this post.' },
     ...(isReel ? [
       { label: 'Avg Watch',   value: avgWatchSec,                   compare: vsAvg(post.avg_watch_time_ms, averages.avg_watch_time_ms) },
       { label: 'Avg Watch %', value: fmtPct(avgWatchRateVal),       compare: vsAvg(avgWatchRateVal,     averages.avg_watch_rate)  },

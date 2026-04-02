@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import StatCard from '@/components/ui/stat-card'
-import { Users, Eye, BarChart2, Heart, MousePointerClick, TrendingUp, Info } from 'lucide-react'
+import { Users, Eye, BarChart2, Heart, MousePointerClick, TrendingUp, Target, UserCheck, Info } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -216,6 +216,34 @@ const METRICS = [
     },
   },
   {
+    title: 'PV Rate',
+    info:  'Profile visits ÷ Reach — % of accounts you reached who then visited your profile',
+    icon:  Target,
+    compute(snapshots: Snapshot[], range: Range) {
+      const latest   = snapshots[0]
+      const prior    = snapshots[range] ?? null
+      // Use account-level period totals (same source as Profile Visits and Reach KPI cards)
+      const curViews = range === 7 ? (latest?.profile_views_7d ?? null) : (latest?.profile_views_30d ?? null)
+      const curReach = range === 7 ? (latest?.reach_7d         ?? null) : (latest?.reach_30d         ?? null)
+      const prevViews = range === 7 ? (prior?.profile_views_7d ?? null) : (prior?.profile_views_30d  ?? null)
+      const prevReach = range === 7 ? (prior?.reach_7d         ?? null) : (prior?.reach_30d          ?? null)
+
+      if (curViews == null || !curReach) return { value: '—' }
+      const curRate  = (curViews / curReach) * 100
+
+      const prevRate = (prevViews != null && prevReach)
+        ? (prevViews / prevReach) * 100
+        : null
+
+      const value = `${curRate.toFixed(1)}%`
+      const change = prevRate !== null
+        ? parseFloat((curRate - prevRate).toFixed(1))
+        : undefined
+
+      return { value, change }
+    },
+  },
+  {
     title: 'Growth Rate',
     info:  'Net follower gain ÷ follower count at the start of the period',
     icon:  TrendingUp,
@@ -246,13 +274,46 @@ const METRICS = [
       return { value, change }
     },
   },
+  {
+    title: 'Follow Conv.',
+    info:  'What % of profile visitors followed you. Calculated as net new followers ÷ profile views over the period.',
+    icon:  UserCheck,
+    compute(snapshots: Snapshot[], range: Range) {
+      const curSlice  = snapshots.slice(0, range)
+      const prevSlice = snapshots.slice(range, range * 2)
+
+      // Net new followers = sum of daily deltas (followers_count is a daily net delta)
+      const curFollowers  = sumField(curSlice,  'followers_count')
+      const prevFollowers = sumField(prevSlice, 'followers_count')
+
+      // Profile views: use period totals from the latest snapshot row
+      const latest   = snapshots[0]
+      const prior    = snapshots[range] ?? null
+      const curViews  = range === 7 ? (latest?.profile_views_7d  ?? null) : (latest?.profile_views_30d  ?? null)
+      const prevViews = range === 7 ? (prior?.profile_views_7d   ?? null) : (prior?.profile_views_30d   ?? null)
+
+      if (curViews == null || curViews === 0) return { value: '—' }
+      const curRate  = (curFollowers / curViews) * 100
+
+      const prevRate = (prevViews != null && prevViews > 0)
+        ? (prevFollowers / prevViews) * 100
+        : null
+
+      const value  = `${curRate.toFixed(1)}%`
+      const change = prevRate !== null
+        ? parseFloat((curRate - prevRate).toFixed(1))
+        : undefined
+
+      return { value, change }
+    },
+  },
 ] as const
 
 // ── Grid ──────────────────────────────────────────────────────────────────────
 
 export default function KpiGrid({ account, snapshots, loading = false }: Props) {
   return (
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
       {METRICS.map((metric) => (
         <KpiCard
           key={metric.title}

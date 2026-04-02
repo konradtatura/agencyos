@@ -181,8 +181,26 @@ export default async function InstagramPage() {
         if (cadenceMap.has(key)) cadenceMap.set(key, cadenceMap.get(key)! + 1)
       }
 
+      // Net new followers per week from account snapshots (followers_count = daily delta)
+      const followersByWeek = new Map<string, number>()
+      for (const snap of snapshots) {
+        if (snap.followers_count == null) continue
+        const d = new Date(snap.date + 'T00:00:00Z')
+        const sdow = d.getUTCDay()
+        const sToMonday = sdow === 0 ? 6 : sdow - 1
+        d.setUTCDate(d.getUTCDate() - sToMonday)
+        const key = d.toISOString().split('T')[0]
+        if (cadenceMap.has(key)) {
+          followersByWeek.set(key, (followersByWeek.get(key) ?? 0) + snap.followers_count)
+        }
+      }
+
       cadenceData = Array.from(cadenceMap.entries())
-        .map(([weekStart, count]) => ({ weekStart, count }))
+        .map(([weekStart, count]) => ({
+          weekStart,
+          count,
+          newFollowers: followersByWeek.has(weekStart) ? (followersByWeek.get(weekStart) ?? null) : null,
+        }))
       cadenceAvg = cadenceData.reduce((s, p) => s + p.count, 0) / cadenceData.length
     }
   }

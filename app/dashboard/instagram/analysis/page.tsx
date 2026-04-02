@@ -4,7 +4,9 @@ import PageHeader from '@/components/ui/page-header'
 import SyncBar from '../sync-bar'
 import InstagramTabs from '../instagram-tabs'
 import AnalysisView, { type HistoryItem } from './analysis-view'
+import ContentPerformanceMatrix from './content-performance-matrix'
 import type { ContentAnalysis } from '@/lib/analysis/content-analyzer'
+import type { PostRow } from '../content/posts-table'
 
 export default async function AnalysisPage() {
   const supabase = await createClient()
@@ -60,6 +62,66 @@ export default async function AnalysisPage() {
         .eq('transcript_status', 'done')
     : { count: 0 }
 
+  // ── Posts + metrics for Content Performance Matrix ────────────────────────
+  const { data: rawPosts } = (profile && connected)
+    ? await admin
+        .from('instagram_posts')
+        .select('id, ig_media_id, caption, media_type, media_url, thumbnail_url, permalink, posted_at, transcript_status, is_trial, video_duration, reel_group_id')
+        .eq('creator_id', profile.id)
+        .order('posted_at', { ascending: false })
+    : { data: null }
+
+  const matrixPostIds = (rawPosts ?? []).map((p) => p.id)
+
+  const { data: rawMetrics } = matrixPostIds.length
+    ? await admin
+        .from('instagram_post_metrics')
+        .select('post_id, reach, saved, shares, views, like_count, comments_count, total_interactions, profile_visits, follows_count, replays_count, avg_watch_time_ms, skip_rate, reposts_count, non_follower_reach, follows_count_manual, skip_rate_manual, avg_watch_time_manual, synced_at')
+        .in('post_id', matrixPostIds)
+        .order('synced_at', { ascending: false })
+    : { data: null }
+
+  // Deduplicate: keep latest metrics snapshot per post
+  const matrixMetricsMap = new Map<string, Record<string, unknown>>()
+  for (const m of rawMetrics ?? []) {
+    if (!matrixMetricsMap.has(m.post_id)) matrixMetricsMap.set(m.post_id, m as Record<string, unknown>)
+  }
+
+  const matrixRows: PostRow[] = (rawPosts ?? []).map((p) => {
+    const m = matrixMetricsMap.get(p.id) ?? null
+    return {
+      id:             p.id,
+      ig_media_id:    p.ig_media_id,
+      caption:        p.caption        ?? null,
+      media_type:     p.media_type     as PostRow['media_type'],
+      media_url:      p.media_url      ?? null,
+      thumbnail_url:  p.thumbnail_url  ?? null,
+      permalink:      p.permalink      ?? null,
+      posted_at:      p.posted_at,
+      transcript_status: ((p.transcript_status ?? 'none') as PostRow['transcript_status']),
+      is_trial:          (p as Record<string, unknown>).is_trial as boolean ?? false,
+      video_duration:    (p as Record<string, unknown>).video_duration as number | null ?? null,
+      reel_group_id:     (p as Record<string, unknown>).reel_group_id as string | null ?? null,
+      reach:              m ? (m.reach as number | null ?? null)              : null,
+      saved:              m ? (m.saved as number | null ?? null)              : null,
+      shares:             m ? (m.shares as number | null ?? null)             : null,
+      views:              m ? (m.views as number | null ?? null)              : null,
+      like_count:         m ? (m.like_count as number | null ?? null)         : null,
+      comments_count:     m ? (m.comments_count as number | null ?? null)     : null,
+      total_interactions: m ? (m.total_interactions as number | null ?? null) : null,
+      profile_visits:     m ? (m.profile_visits as number | null ?? null)     : null,
+      follows_count:      m ? (m.follows_count as number | null ?? null)      : null,
+      replays_count:      m ? (m.replays_count as number | null ?? null)      : null,
+      avg_watch_time_ms:  m ? (m.avg_watch_time_ms as number | null ?? null)  : null,
+      skip_rate:          m ? (m.skip_rate as number | null ?? null)          : null,
+      reposts_count:      m ? (m.reposts_count as number | null ?? null)      : null,
+      non_follower_reach: m ? (m.non_follower_reach as number | null ?? null) : null,
+      follows_count_manual:  m ? (m.follows_count_manual as boolean ?? false)  : false,
+      skip_rate_manual:      m ? (m.skip_rate_manual as boolean ?? false)      : false,
+      avg_watch_time_manual: m ? (m.avg_watch_time_manual as boolean ?? false) : false,
+    }
+  })
+
   // ── Analysis history (all, newest first) ──────────────────────────────────
   const { data: rawHistory } = profile
     ? await admin
@@ -112,7 +174,11 @@ export default async function AnalysisPage() {
         <InstagramTabs activePath="/dashboard/instagram/analysis" />
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 space-y-8">
+        {connected && matrixRows.length > 0 && (
+          <ContentPerformanceMatrix rows={matrixRows} />
+        )}
+
         <AnalysisView
           connected={connected}
           transcribedCount={transcribedCount ?? 0}

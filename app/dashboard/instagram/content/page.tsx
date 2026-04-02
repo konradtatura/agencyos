@@ -75,7 +75,7 @@ export default async function ContentPage({
     postIds.length
       ? admin
           .from('instagram_post_metrics')
-          .select('post_id, reach, saved, shares, views, like_count, comments_count, total_interactions, follows_count, replays_count, avg_watch_time_ms, skip_rate, reposts_count, non_follower_reach, follows_count_manual, skip_rate_manual, avg_watch_time_manual, synced_at')
+          .select('post_id, reach, saved, shares, views, like_count, comments_count, total_interactions, profile_visits, follows_count, replays_count, avg_watch_time_ms, skip_rate, reposts_count, non_follower_reach, follows_count_manual, skip_rate_manual, avg_watch_time_manual, synced_at')
           .in('post_id', postIds)
           .order('synced_at', { ascending: false })
       : Promise.resolve({ data: null }),
@@ -103,6 +103,7 @@ export default async function ContentPage({
     like_count:          number | null
     comments_count:      number | null
     total_interactions:  number | null
+    profile_visits:      number | null
     follows_count:       number | null
     replays_count:       number | null
     avg_watch_time_ms:   number | null
@@ -124,6 +125,7 @@ export default async function ContentPage({
         like_count:          m.like_count         ?? null,
         comments_count:      m.comments_count     ?? null,
         total_interactions:  m.total_interactions ?? null,
+        profile_visits:      m.profile_visits     ?? null,
         follows_count:       m.follows_count      ?? null,
         replays_count:       m.replays_count      ?? null,
         avg_watch_time_ms:   m.avg_watch_time_ms  ?? null,
@@ -160,6 +162,7 @@ export default async function ContentPage({
       like_count:         m?.like_count         ?? null,
       comments_count:     m?.comments_count     ?? null,
       total_interactions: m?.total_interactions ?? null,
+      profile_visits:     m?.profile_visits     ?? null,
       follows_count:      m?.follows_count      ?? null,
       replays_count:      m?.replays_count      ?? null,
       avg_watch_time_ms:  m?.avg_watch_time_ms  ?? null,

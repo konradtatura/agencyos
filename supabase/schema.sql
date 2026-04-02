@@ -548,6 +548,7 @@ CREATE TABLE IF NOT EXISTS public.instagram_post_metrics (
   like_count          integer,
   comments_count      integer,
   total_interactions  integer,
+  profile_visits      integer,   -- accounts that visited the profile after seeing this post
 
   CONSTRAINT instagram_post_metrics_post_synced_unique UNIQUE (post_id, synced_date)
 );
@@ -556,7 +557,8 @@ CREATE INDEX IF NOT EXISTS instagram_post_metrics_post_id_idx  ON public.instagr
 CREATE INDEX IF NOT EXISTS instagram_post_metrics_synced_idx   ON public.instagram_post_metrics (post_id, synced_at DESC);
 
 -- Migration for existing deployments:
--- Run the CREATE TABLE statements above. No ALTER TABLE needed — these are new tables.
+-- Run the CREATE TABLE statements above. For the profile_visits column on existing tables:
+-- ALTER TABLE public.instagram_post_metrics ADD COLUMN IF NOT EXISTS profile_visits integer;
 
 -- ============================================================================
 -- RLS — Content Pipeline

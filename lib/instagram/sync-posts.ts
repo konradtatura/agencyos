@@ -55,6 +55,7 @@ interface PostInsights {
   shares:             number | null
   views:              number | null
   total_interactions: number | null
+  profile_visits:     number | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -128,12 +129,13 @@ async function fetchPostInsights(
   token:   string,
 ): Promise<PostInsights> {
   const nullResult: PostInsights = {
-    reach: null, saved: null, shares: null, views: null, total_interactions: null,
+    reach: null, saved: null, shares: null, views: null, total_interactions: null, profile_visits: null,
   }
 
   // `views` is only valid for VIDEO/REEL; request it anyway and handle the error.
   // `total_interactions` is a summary metric — also may be absent on older posts.
-  const metrics = 'reach,saved,shares,views,total_interactions'
+  // `profile_visits` counts accounts that visited the profile after seeing this post.
+  const metrics = 'reach,saved,shares,views,total_interactions,profile_visits'
 
   try {
     const url =
@@ -155,6 +157,7 @@ async function fetchPostInsights(
       shares:             pickMetric(json, 'shares'),
       views:              pickMetric(json, 'views'),
       total_interactions: pickMetric(json, 'total_interactions'),
+      profile_visits:     pickMetric(json, 'profile_visits'),
     }
   } catch (err) {
     logError(`fetchPostInsights(${mediaId})`, err)
@@ -399,6 +402,7 @@ export async function syncPosts(
     like_count:            number | null
     comments_count:        number | null
     total_interactions:    number | null
+    profile_visits:        number | null
     follows_count:         number | null
     replays_count:         number | null
     avg_watch_time_ms:     number | null   // raw ms from API
@@ -480,6 +484,7 @@ export async function syncPosts(
         like_count:           m.like_count         ?? null,
         comments_count:       m.comments_count     ?? null,
         total_interactions:   ins.total_interactions,
+        profile_visits:       ins.profile_visits,
         follows_count:        followsCounts[j],
         replays_count:        replayCounts[j]      ?? null,
         avg_watch_time_ms:    avgWatchTimes[j]     ?? null,
