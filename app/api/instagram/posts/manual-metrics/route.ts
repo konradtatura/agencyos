@@ -12,9 +12,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-export type ManualMetricField = 'follows_count' | 'skip_rate' | 'avg_watch_time_ms'
+export type ManualMetricField = 'avg_watch_time_ms'
 
-const ALLOWED_FIELDS: ManualMetricField[] = ['follows_count', 'skip_rate', 'avg_watch_time_ms']
+const ALLOWED_FIELDS: ManualMetricField[] = ['avg_watch_time_ms']
 
 export async function PATCH(req: Request) {
   const supabase = await createClient()

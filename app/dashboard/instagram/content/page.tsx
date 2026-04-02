@@ -60,7 +60,7 @@ export default async function ContentPage({
   const { data: rawPosts } = (profile && connected)
     ? await admin
         .from('instagram_posts')
-        .select('id, ig_media_id, caption, media_type, media_url, thumbnail_url, permalink, posted_at, transcript_status, is_trial, video_duration, reel_group_id')
+        .select('id, ig_media_id, caption, media_type, media_url, thumbnail_url, permalink, posted_at, transcript_status, is_trial, reel_group_id')
         .eq('creator_id', profile.id)
         .order('posted_at', { ascending: false })
     : { data: null }
@@ -75,7 +75,7 @@ export default async function ContentPage({
     postIds.length
       ? admin
           .from('instagram_post_metrics')
-          .select('post_id, reach, saved, shares, views, like_count, comments_count, total_interactions, profile_visits, follows_count, replays_count, avg_watch_time_ms, skip_rate, reposts_count, non_follower_reach, follows_count_manual, skip_rate_manual, avg_watch_time_manual, synced_at')
+          .select('post_id, reach, saved, shares, views, like_count, comments_count, total_interactions, profile_visits, follows_count, replays_count, avg_watch_time_ms, total_watch_time_ms, reposts_count, non_follower_reach, avg_watch_time_manual, synced_at')
           .in('post_id', postIds)
           .order('synced_at', { ascending: false })
       : Promise.resolve({ data: null }),
@@ -107,11 +107,9 @@ export default async function ContentPage({
     follows_count:       number | null
     replays_count:       number | null
     avg_watch_time_ms:   number | null
-    skip_rate:           number | null
+    total_watch_time_ms: number | null
     reposts_count:       number | null
     non_follower_reach:  number | null
-    follows_count_manual: boolean
-    skip_rate_manual:     boolean
     avg_watch_time_manual: boolean
   }>()
 
@@ -129,11 +127,9 @@ export default async function ContentPage({
         follows_count:       m.follows_count      ?? null,
         replays_count:       m.replays_count      ?? null,
         avg_watch_time_ms:   m.avg_watch_time_ms  ?? null,
-        skip_rate:           m.skip_rate          ?? null,
+        total_watch_time_ms: (m as Record<string, unknown>).total_watch_time_ms as number | null ?? null,
         reposts_count:       m.reposts_count      ?? null,
         non_follower_reach:  m.non_follower_reach ?? null,
-        follows_count_manual: (m as Record<string, unknown>).follows_count_manual === true,
-        skip_rate_manual:     (m as Record<string, unknown>).skip_rate_manual     === true,
         avg_watch_time_manual:(m as Record<string, unknown>).avg_watch_time_manual=== true,
       })
     }
@@ -153,7 +149,6 @@ export default async function ContentPage({
       posted_at:           p.posted_at,
       transcript_status:   (p.transcript_status ?? 'none') as PostRow['transcript_status'],
       is_trial:            p.is_trial ?? false,
-      video_duration:      (p as Record<string, unknown>).video_duration as number | null ?? null,
       reel_group_id:       (p as Record<string, unknown>).reel_group_id as string | null ?? null,
       reach:              m?.reach              ?? null,
       saved:              m?.saved              ?? null,
@@ -166,11 +161,9 @@ export default async function ContentPage({
       follows_count:      m?.follows_count      ?? null,
       replays_count:      m?.replays_count      ?? null,
       avg_watch_time_ms:  m?.avg_watch_time_ms  ?? null,
-      skip_rate:           m?.skip_rate          ?? null,
+      total_watch_time_ms: m?.total_watch_time_ms ?? null,
       reposts_count:       m?.reposts_count      ?? null,
       non_follower_reach:  m?.non_follower_reach ?? null,
-      follows_count_manual: m?.follows_count_manual  ?? false,
-      skip_rate_manual:     m?.skip_rate_manual      ?? false,
       avg_watch_time_manual: m?.avg_watch_time_manual ?? false,
     }
   })

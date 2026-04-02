@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import { X, ExternalLink, Play, Loader2, Copy, Check, Save } from 'lucide-react'
 import type { ManualMetricField } from '@/app/api/instagram/posts/manual-metrics/route'
 import type { PostRow, AccountAverages } from './posts-table'
-import { calcReplayRate, calcAvgWatchRate, calcHookRate, calcProfileVisitRate } from './posts-table'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -20,6 +19,16 @@ interface Props {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+function fmtTotalWatchTime(ms: number | null): string {
+  if (ms == null) return '—'
+  const seconds = ms / 1000
+  const hours   = seconds / 3600
+  const minutes = seconds / 60
+  if (hours   >= 1) return `${hours.toFixed(1)}h`
+  if (minutes >= 1) return `${Math.round(minutes)}m`
+  return `${Math.round(seconds)}s`
+}
 
 function fmtNum(n: number | null | undefined): string {
   if (n == null) return '—'
@@ -114,8 +123,6 @@ export default function PostDetailPanel({
   const [copied,           setCopied]           = useState(false)
 
   // Manual metric inputs
-  const [followsInput,   setFollowsInput]   = useState(post.follows_count    != null ? String(post.follows_count)                      : '')
-  const [skipRateInput,  setSkipRateInput]  = useState(post.skip_rate        != null ? String(post.skip_rate.toFixed(1))               : '')
   const [watchTimeInput, setWatchTimeInput] = useState(post.avg_watch_time_ms != null ? String((post.avg_watch_time_ms / 1000).toFixed(1)) : '')
   const [manualSaving,   setManualSaving]   = useState<ManualMetricField | null>(null)
   const [manualSaved,    setManualSaved]    = useState<ManualMetricField | null>(null)
@@ -253,40 +260,29 @@ export default function PostDetailPanel({
 
   const isReel      = post.media_type === 'VIDEO'
   const thumb       = post.thumbnail_url ?? post.media_url
-  const engRate         = post.reach ? ((post.like_count ?? 0) + (post.comments_count ?? 0) + (post.saved ?? 0) + (post.shares ?? 0)) / post.reach * 100 : null
-  const saveRate        = post.reach && post.saved  != null ? post.saved  / post.reach * 100 : null
-  const shareRate       = post.reach && post.shares != null ? post.shares / post.reach * 100 : null
-  const profileVisitRateVal = calcProfileVisitRate(post)
-  const replayRateVal   = calcReplayRate(post)
-  const avgWatchRateVal = calcAvgWatchRate(post)
-  const hookRateVal     = calcHookRate(post)
+  const engRate   = post.reach ? ((post.like_count ?? 0) + (post.comments_count ?? 0) + (post.saved ?? 0) + (post.shares ?? 0)) / post.reach * 100 : null
+  const saveRate  = post.reach && post.saved  != null ? post.saved  / post.reach * 100 : null
+  const shareRate = post.reach && post.shares != null ? post.shares / post.reach * 100 : null
 
   // avg_watch_time_ms stores milliseconds; convert to seconds for display
   const avgWatchSec = post.avg_watch_time_ms != null ? `${(post.avg_watch_time_ms / 1000).toFixed(1)}s` : '—'
 
   const metrics = [
-    ...(isReel ? [{ label: 'Views',       value: fmtNum(post.views),          compare: vsAvg(post.views,         averages.views)           }] : []),
-    { label: 'Reach',       value: fmtNum(post.reach),            compare: vsAvg(post.reach,          averages.reach)          },
-    { label: 'Likes',       value: fmtNum(post.like_count),       compare: vsAvg(post.like_count,     averages.like_count)     },
-    { label: 'Comments',    value: fmtNum(post.comments_count),   compare: vsAvg(post.comments_count, averages.comments_count) },
-    { label: 'Saves',       value: fmtNum(post.saved),            compare: vsAvg(post.saved,          averages.saved)          },
-    { label: 'Shares',      value: fmtNum(post.shares),           compare: vsAvg(post.shares,         averages.shares)         },
-    { label: 'Eng. Rate',   value: fmtPct(engRate),               compare: vsAvg(engRate,             averages.engagement_rate)    },
-    { label: 'Save Rate',   value: fmtPct(saveRate),              compare: vsAvg(saveRate,            averages.save_rate)          },
-    { label: 'Share Rate',  value: fmtPct(shareRate),             compare: vsAvg(shareRate,           averages.share_rate)         },
-    { label: 'PV Rate',     value: fmtPct(profileVisitRateVal),   compare: vsAvg(profileVisitRateVal, averages.profile_visit_rate),
-      tooltip: 'Profile visits ÷ Reach. % of accounts reached who visited your profile after seeing this post.' },
+    ...(isReel ? [{ label: 'Views',       value: fmtNum(post.views),        compare: vsAvg(post.views,         averages.views)           }] : []),
+    { label: 'Reach',      value: fmtNum(post.reach),            compare: vsAvg(post.reach,          averages.reach)          },
+    { label: 'Likes',      value: fmtNum(post.like_count),       compare: vsAvg(post.like_count,     averages.like_count)     },
+    { label: 'Comments',   value: fmtNum(post.comments_count),   compare: vsAvg(post.comments_count, averages.comments_count) },
+    { label: 'Saves',      value: fmtNum(post.saved),            compare: vsAvg(post.saved,          averages.saved)          },
+    { label: 'Shares',     value: fmtNum(post.shares),           compare: vsAvg(post.shares,         averages.shares)         },
+    { label: 'Eng. Rate',  value: fmtPct(engRate),               compare: vsAvg(engRate,             averages.engagement_rate) },
+    { label: 'Save Rate',  value: fmtPct(saveRate),              compare: vsAvg(saveRate,            averages.save_rate)       },
+    { label: 'Share Rate', value: fmtPct(shareRate),             compare: vsAvg(shareRate,           averages.share_rate)      },
     ...(isReel ? [
-      { label: 'Avg Watch',   value: avgWatchSec,                   compare: vsAvg(post.avg_watch_time_ms, averages.avg_watch_time_ms) },
-      { label: 'Avg Watch %', value: fmtPct(avgWatchRateVal),       compare: vsAvg(avgWatchRateVal,     averages.avg_watch_rate)  },
-      { label: 'Replay Rate', value: fmtPct(replayRateVal),         compare: vsAvg(replayRateVal,       averages.replay_rate)     },
-      {
-        label:   'Hook Rate',
-        value:   fmtPct(hookRateVal),
-        compare: vsAvg(hookRateVal, averages.hook_rate),
-        tooltip: 'Estimated % of accounts who saw this reel and chose to play it. Approximated from API data (views ÷ reach).',
-      },
-    ] : []),
+      { label: 'Avg Watch',    value: avgWatchSec,                         compare: vsAvg(post.avg_watch_time_ms, averages.avg_watch_time_ms) },
+      { label: 'Total Watch',  value: fmtTotalWatchTime(post.total_watch_time_ms), compare: null },
+    ] : [
+      { label: 'Follows',      value: fmtNum(post.follows_count),          compare: vsAvg(post.follows_count, averages.follows_count) },
+    ]),
   ]
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -395,57 +391,6 @@ export default function PostDetailPanel({
                 <p className="text-[11px] text-[#4b5563]">
                   Enter values that aren&apos;t available via the API for your account size.
                 </p>
-
-                {/* New Followers */}
-                <div className="flex items-center gap-2">
-                  <label className="w-[110px] shrink-0 text-[12px] text-[#9ca3af]">New Followers</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={followsInput}
-                    onChange={(e) => setFollowsInput(e.target.value)}
-                    placeholder="e.g. 47"
-                    className="flex-1 rounded-md px-2.5 py-1.5 text-[12px] text-[#f9fafb] outline-none"
-                    style={{ backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleSaveManual('follows_count', followsInput)}
-                    disabled={manualSaving === 'follows_count' || followsInput === ''}
-                    className="flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
-                    style={{ backgroundColor: manualSaved === 'follows_count' ? 'rgba(52,211,153,0.15)' : 'rgba(37,99,235,0.2)', color: manualSaved === 'follows_count' ? '#34d399' : '#60a5fa' }}
-                  >
-                    {manualSaved === 'follows_count' ? <><Check className="h-3 w-3" /> Saved</> : <><Save className="h-3 w-3" /> Save</>}
-                  </button>
-                </div>
-
-                {/* Skip Rate */}
-                <div className="flex items-center gap-2">
-                  <label className="w-[110px] shrink-0 text-[12px] text-[#9ca3af]">Skip Rate</label>
-                  <div className="relative flex-1">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      value={skipRateInput}
-                      onChange={(e) => setSkipRateInput(e.target.value)}
-                      placeholder="e.g. 23.5"
-                      className="w-full rounded-md px-2.5 py-1.5 pr-6 text-[12px] text-[#f9fafb] outline-none"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}
-                    />
-                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-[#6b7280]">%</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleSaveManual('skip_rate', skipRateInput)}
-                    disabled={manualSaving === 'skip_rate' || skipRateInput === ''}
-                    className="flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
-                    style={{ backgroundColor: manualSaved === 'skip_rate' ? 'rgba(52,211,153,0.15)' : 'rgba(37,99,235,0.2)', color: manualSaved === 'skip_rate' ? '#34d399' : '#60a5fa' }}
-                  >
-                    {manualSaved === 'skip_rate' ? <><Check className="h-3 w-3" /> Saved</> : <><Save className="h-3 w-3" /> Save</>}
-                  </button>
-                </div>
 
                 {/* Avg Watch Time */}
                 <div className="flex items-center gap-2">

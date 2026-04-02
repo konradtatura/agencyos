@@ -45,7 +45,17 @@
       "Bash(find /Users/konradtatura/agencyos -type f -name \"*.sql\" -exec grep -l \"post_transcript\" {} \\\\;)",
       "Bash(find /Users/konradtatura/agencyos -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" -o -name \"*.sql\" \\\\\\) ! -path \"*/node_modules/*\" -exec grep -l \"post_transcripts\\\\|post_transcript\" {} \\\\;)",
       "Bash(cat /Users/konradtatura/agencyos/supabase/migrations/*.sql)",
-      "Bash(grep -l \"instagram_account_snapshots\" /Users/konradtatura/agencyos/supabase/migrations/*.sql)"
+      "Bash(grep -l \"instagram_account_snapshots\" /Users/konradtatura/agencyos/supabase/migrations/*.sql)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)",
+      "Bash(curl -s 'https://emnzxzwcbxmxnwdzaytj.supabase.co/rest/v1/instagram_post_metrics?limit=0' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtbnp4endjYnhteG53ZHpheXRqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDM1Mzk3NiwiZXhwIjoyMDg5OTI5OTc2fQ.l0hw-MU5dfOBa-b0uoaJl9sD0YovHSnFOFhlQ_P4Gt4' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtbnp4endjYnhteG53ZHpheXRqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDM1Mzk3NiwiZXhwIjoyMDg5OTI5OTc2fQ.l0hw-MU5dfOBa-b0uoaJl9sD0YovHSnFOFhlQ_P4Gt4' -I)",
+      "Bash(curl -s 'https://emnzxzwcbxmxnwdzaytj.supabase.co/rest/v1/instagram_post_metrics?select=*&limit=1' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtbnp4endjYnhteG53ZHpheXRqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDM1Mzk3NiwiZXhwIjoyMDg5OTI5OTc2fQ.l0hw-MU5dfOBa-b0uoaJl9sD0YovHSnFOFhlQ_P4Gt4' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtbnp4endjYnhteG53ZHpheXRqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDM1Mzk3NiwiZXhwIjoyMDg5OTI5OTc2fQ.l0hw-MU5dfOBa-b0uoaJl9sD0YovHSnFOFhlQ_P4Gt4')",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d[0].keys\\(\\)\\) if d else 'empty'\\)\")",
+      "Bash(curl -s -X POST https://api.supabase.com/v1/projects/emnzxzwcbxmxnwdzaytj/database/query -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtbnp4endjYnhteG53ZHpheXRqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDM1Mzk3NiwiZXhwIjoyMDg5OTI5OTc2fQ.l0hw-MU5dfOBa-b0uoaJl9sD0YovHSnFOFhlQ_P4Gt4' -H 'Content-Type: application/json' -d '{\"query\": \"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '\\\\''instagram_post_metrics'\\\\'' ORDER BY ordinal_position\"}')",
+      "Read(//Users/konradtatura/**)",
+      "Read(//Users/konradtatura/.supabase/**)",
+      "Bash(node -e \"require\\('pg'\\)\")"
     ]
   }
 }

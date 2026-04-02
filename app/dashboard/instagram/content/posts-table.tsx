@@ -37,13 +37,10 @@ export interface PostRow {
   follows_count:       number | null
   replays_count:           number | null
   avg_watch_time_ms:       number | null   // stored in milliseconds; divide by 1000 for display
-  skip_rate:               number | null   // stored %, e.g. 62.4 means 62.4%
+  total_watch_time_ms:     number | null   // ig_reels_video_view_total_time, reels only
   reposts_count:           number | null
   non_follower_reach:      number | null
-  video_duration:          number | null   // seconds, from instagram_posts
-  // Manual-entry flags — true when the value was entered by the creator, not pulled from API
-  follows_count_manual:    boolean
-  skip_rate_manual:        boolean
+  // Manual-entry flag — true when avg_watch_time_ms was entered by the creator
   avg_watch_time_manual:   boolean
 }
 
@@ -57,24 +54,20 @@ export interface AccountAverages {
   follows_count:      number | null
   replays_count:      number | null
   avg_watch_time_ms:  number | null
-  skip_rate:          number | null
+  total_watch_time_ms: number | null
   reposts_count:      number | null
   non_follower_reach: number | null
   engagement_rate:    number | null
   save_rate:          number | null
   share_rate:         number | null
-  profile_visit_rate: number | null
-  replay_rate:        number | null
-  avg_watch_rate:     number | null
-  hook_rate:          number | null
 }
 
-type ManualField = 'follows_count' | 'skip_rate' | 'avg_watch_time_ms'
+type ManualField = 'avg_watch_time_ms'
 
 type SortKey =
   | 'posted_at' | 'views' | 'reach' | 'like_count'
   | 'comments_count' | 'saved' | 'shares'
-  | 'engagement_rate' | 'save_rate' | 'profile_visit_rate' | 'replay_rate' | 'avg_watch_rate' | 'hook_rate'
+  | 'engagement_rate' | 'save_rate'
 
 type SortDir = 'asc' | 'desc'
 
@@ -116,18 +109,6 @@ export function calcReplayRate(row: PostRow): number | null {
   return (row.views / row.reach) * 100
 }
 
-/** avg_watch_time (ms→seconds) ÷ video_duration (seconds), capped at 100%. */
-export function calcAvgWatchRate(row: PostRow): number | null {
-  if (row.media_type !== 'VIDEO' || row.avg_watch_time_ms == null || !row.video_duration) return null
-  return Math.min(((row.avg_watch_time_ms / 1000) / row.video_duration) * 100, 100)
-}
-
-/** Views ÷ Reach × 100. Approximation of the % of reached accounts who played the reel. */
-export function calcHookRate(row: PostRow): number | null {
-  if (row.media_type !== 'VIDEO' || !row.reach || row.views == null) return null
-  return (row.views / row.reach) * 100
-}
-
 function avgOf(values: (number | null)[]): number | null {
   const valid = values.filter((v): v is number => v !== null)
   if (!valid.length) return null
@@ -137,25 +118,21 @@ function avgOf(values: (number | null)[]): number | null {
 export function computeAverages(rows: PostRow[]): AccountAverages {
   const reels = rows.filter((r) => r.media_type === 'VIDEO')
   return {
-    views:              avgOf(rows.map((r) => r.views)),
-    reach:              avgOf(rows.map((r) => r.reach)),
-    like_count:         avgOf(rows.map((r) => r.like_count)),
-    comments_count:     avgOf(rows.map((r) => r.comments_count)),
-    saved:              avgOf(rows.map((r) => r.saved)),
-    shares:             avgOf(rows.map((r) => r.shares)),
-    follows_count:      avgOf(rows.map((r) => r.follows_count)),
-    replays_count:      avgOf(reels.map((r) => r.replays_count)),
-    avg_watch_time_ms:  avgOf(reels.map((r) => r.avg_watch_time_ms)),
-    skip_rate:          avgOf(reels.map((r) => r.skip_rate)),
-    reposts_count:      avgOf(rows.map((r) => r.reposts_count)),
-    non_follower_reach: avgOf(rows.map((r) => r.non_follower_reach)),
-    engagement_rate:    avgOf(rows.map((r) => calcEngagementRate(r))),
-    save_rate:          avgOf(rows.map((r) => calcSaveRate(r))),
-    share_rate:         avgOf(rows.map((r) => calcShareRate(r))),
-    profile_visit_rate: avgOf(rows.map((r) => calcProfileVisitRate(r))),
-    replay_rate:        avgOf(reels.map((r) => calcReplayRate(r))),
-    avg_watch_rate:     avgOf(reels.map((r) => calcAvgWatchRate(r))),
-    hook_rate:          avgOf(reels.map((r) => calcHookRate(r))),
+    views:               avgOf(rows.map((r) => r.views)),
+    reach:               avgOf(rows.map((r) => r.reach)),
+    like_count:          avgOf(rows.map((r) => r.like_count)),
+    comments_count:      avgOf(rows.map((r) => r.comments_count)),
+    saved:               avgOf(rows.map((r) => r.saved)),
+    shares:              avgOf(rows.map((r) => r.shares)),
+    follows_count:       avgOf(rows.map((r) => r.follows_count)),
+    replays_count:       avgOf(reels.map((r) => r.replays_count)),
+    avg_watch_time_ms:   avgOf(reels.map((r) => r.avg_watch_time_ms)),
+    total_watch_time_ms: null,   // cumulative, not meaningful to average
+    reposts_count:       avgOf(rows.map((r) => r.reposts_count)),
+    non_follower_reach:  avgOf(rows.map((r) => r.non_follower_reach)),
+    engagement_rate:     avgOf(rows.map((r) => calcEngagementRate(r))),
+    save_rate:           avgOf(rows.map((r) => calcSaveRate(r))),
+    share_rate:          avgOf(rows.map((r) => calcShareRate(r))),
   }
 }
 
@@ -177,6 +154,16 @@ function fmtPct(n: number | null): string {
 function fmtWatchTime(ms: number | null): string {
   if (ms == null) return '—'
   return `${(ms / 1000).toFixed(1)}s`
+}
+
+function fmtTotalWatchTime(ms: number | null): string {
+  if (ms == null) return '—'
+  const seconds = ms / 1000
+  const hours   = seconds / 3600
+  const minutes = seconds / 60
+  if (hours   >= 1) return `${hours.toFixed(1)}h`
+  if (minutes >= 1) return `${Math.round(minutes)}m`
+  return `${Math.round(seconds)}s`
 }
 
 function fmtDate(iso: string): string {
@@ -444,50 +431,39 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
       'Reposts',
       'Follows',
       'Avg Watch Time (s)',
-      'Avg Watch %',
-      'Skip Rate %',
-      'Replay Rate %',
-      'Hook Rate %',
+      'Total Watch Time (ms)',
       'Engagement Rate %',
       'Save Rate %',
       'Share Rate %',
-      'Video Duration (s)',
       'Transcript',
       'Transcript Status',
       'Instagram URL',
     ]
 
     const csvRows = sorted.map((row) => {
-      const eng          = calcEngagementRate(row)
-      const save         = calcSaveRate(row)
-      const share        = calcShareRate(row)
-      const replay       = calcReplayRate(row)
-      const avgWatchRate = calcAvgWatchRate(row)
-      const hookRate     = calcHookRate(row)
-      const watchSec     = row.avg_watch_time_ms != null ? (row.avg_watch_time_ms / 1000).toFixed(2) : ''
+      const eng      = calcEngagementRate(row)
+      const save     = calcSaveRate(row)
+      const share    = calcShareRate(row)
+      const watchSec = row.avg_watch_time_ms != null ? (row.avg_watch_time_ms / 1000).toFixed(2) : ''
 
       return [
         fmtDate(row.posted_at),
         row.caption ?? '',
         typeLabel(row.media_type),
         row.is_trial ? 'true' : 'false',
-        row.views          ?? '',
-        row.reach          ?? '',
-        row.like_count     ?? '',
-        row.comments_count ?? '',
-        row.saved          ?? '',
-        row.shares         ?? '',
-        row.reposts_count  ?? '',
-        row.follows_count  ?? '',
+        row.views              ?? '',
+        row.reach              ?? '',
+        row.like_count         ?? '',
+        row.comments_count     ?? '',
+        row.saved              ?? '',
+        row.shares             ?? '',
+        row.reposts_count      ?? '',
+        row.follows_count      ?? '',
         watchSec,
-        avgWatchRate != null ? avgWatchRate.toFixed(1) : '',
-        row.skip_rate != null ? row.skip_rate.toFixed(2) : '',
-        replay != null ? replay.toFixed(2) : '',
-        hookRate != null ? hookRate.toFixed(1) : '',
-        eng    != null ? eng.toFixed(2)    : '',
-        save   != null ? save.toFixed(2)   : '',
-        share  != null ? share.toFixed(2)  : '',
-        row.video_duration ?? '',
+        row.total_watch_time_ms ?? '',
+        eng   != null ? eng.toFixed(2)   : '',
+        save  != null ? save.toFixed(2)  : '',
+        share != null ? share.toFixed(2) : '',
         transcripts[row.id] ?? '',
         row.transcript_status,
         row.permalink ?? '',
@@ -549,10 +525,6 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
         case 'shares':         av = a.shares;         bv = b.shares;         break
         case 'engagement_rate':    av = calcEngagementRate(a);    bv = calcEngagementRate(b);    break
         case 'save_rate':          av = calcSaveRate(a);          bv = calcSaveRate(b);          break
-        case 'profile_visit_rate': av = calcProfileVisitRate(a);  bv = calcProfileVisitRate(b);  break
-        case 'replay_rate':        av = calcReplayRate(a);        bv = calcReplayRate(b);        break
-        case 'avg_watch_rate':  av = calcAvgWatchRate(a);     bv = calcAvgWatchRate(b);     break
-        case 'hook_rate':       av = calcHookRate(a);          bv = calcHookRate(b);          break
       }
       if (av === null && bv === null) return 0
       if (av === null) return 1
@@ -752,7 +724,7 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
       return
     }
     const storeValue = field === 'avg_watch_time_ms' ? Math.round(parsed * 1000) : parsed
-    const manualFlag = `${field}_manual` as 'follows_count_manual' | 'skip_rate_manual' | 'avg_watch_time_manual'
+    const manualFlag = `${field}_manual` as 'avg_watch_time_manual'
 
     // Optimistic update
     setMetricOverrides((prev) => {
@@ -866,10 +838,9 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
     { key: 'all', label: 'All time' },
   ]
 
-  // Extra columns when in bulk mode
-  // Base: Thumb + Caption + Type + Date + Views + Reach + Likes + Comments +
-  //       Saves + Shares + Reposts + Follows + Avg Watch + Avg Watch % + Skip Rate + Eng Rate + Save Rate + Replay Rate = 18
-  const colSpanBase = 19
+  // Columns: Thumb + Caption + Type + Date + Views + Reach + Likes + Comments +
+  //          Saves + Shares + Reposts + Follows + Avg Watch + Total Watch + Eng Rate + Save Rate = 16
+  const colSpanBase = 16
   const colSpan = bulkMode ? colSpanBase + 1 : colSpanBase
 
   return (
@@ -974,7 +945,6 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
             const sumReach   = groupRows.reduce((s: number, r: PostRow) => s + (r.reach ?? 0), 0)
             const sumLikes   = groupRows.reduce((s: number, r: PostRow) => s + (r.like_count ?? 0), 0)
             const avgEng     = avgOf(groupRows.map((r: PostRow) => calcEngagementRate(r)))
-            const avgWatch   = avgOf(groupRows.map((r: PostRow) => calcAvgWatchRate(r)))
             return (
               <div
                 key={groupId}
@@ -1033,7 +1003,6 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                     <span title="Total reach"><span className="text-[#d1d5db] font-mono">{fmtNum(sumReach)}</span> reach</span>
                     <span title="Total likes"><span className="text-[#d1d5db] font-mono">{fmtNum(sumLikes)}</span> likes</span>
                     <span title="Avg engagement rate"><span className="text-[#d1d5db] font-mono">{fmtPct(avgEng)}</span> eng</span>
-                    <span title="Avg watch %"><span className="text-[#d1d5db] font-mono">{fmtPct(avgWatch)}</span> watch</span>
                   </div>
                   {/* Group actions */}
                   <div className="flex items-center gap-1 pl-3" onClick={(e) => e.stopPropagation()}>
@@ -1190,13 +1159,9 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
               <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[#6b7280]">Reposts</th>
               <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[#6b7280]">Follows</th>
               <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[#6b7280]">Avg Watch</th>
-              <Th col="avg_watch_rate"  sortKey={sortKey} sortDir={sortDir} onClick={handleSort} title="Avg watch time ÷ video duration. How much of the reel people watched on average.">Avg Watch %</Th>
-              <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[#6b7280]">Skip Rate</th>
-              <Th col="engagement_rate"    sortKey={sortKey} sortDir={sortDir} onClick={handleSort}>Eng. Rate</Th>
-              <Th col="save_rate"          sortKey={sortKey} sortDir={sortDir} onClick={handleSort}>Save Rate</Th>
-              <Th col="profile_visit_rate" sortKey={sortKey} sortDir={sortDir} onClick={handleSort} title="Profile visits ÷ Reach. % of reached accounts who visited your profile.">PV Rate</Th>
-              <Th col="replay_rate"     sortKey={sortKey} sortDir={sortDir} onClick={handleSort} title="Views ÷ Reach. Above 100% means people are rewatching.">Replay Rate</Th>
-              <Th col="hook_rate"       sortKey={sortKey} sortDir={sortDir} onClick={handleSort} title="Estimated % of accounts who saw this reel and chose to play it. Approximated from API data (views ÷ reach).">Hook Rate</Th>
+              <th className="px-3 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[#6b7280]" title="Total cumulative watch time for this reel (ig_reels_video_view_total_time)">Total Watch</th>
+              <Th col="engagement_rate" sortKey={sortKey} sortDir={sortDir} onClick={handleSort}>Eng. Rate</Th>
+              <Th col="save_rate"       sortKey={sortKey} sortDir={sortDir} onClick={handleSort}>Save Rate</Th>
             </tr>
           </thead>
           <tbody>
@@ -1209,12 +1174,8 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                 const isReel          = row.media_type === 'VIDEO'
                 const isSelected      = selectedIds.has(row.id)
                 const thumb           = row.thumbnail_url ?? row.media_url
-                const engRate         = calcEngagementRate(row)
-                const saveRate        = calcSaveRate(row)
-                const profileVisitRate = calcProfileVisitRate(row)
-                const replayRate      = calcReplayRate(row)
-                const avgWatchRate    = calcAvgWatchRate(row)
-                const hookRate        = calcHookRate(row)
+                const engRate  = calcEngagementRate(row)
+                const saveRate = calcSaveRate(row)
 
                 return (
                   <tr
@@ -1340,36 +1301,9 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                     <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">{fmtNum(row.shares)}</td>
                     <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">{fmtNum(row.reposts_count)}</td>
 
-                    {/* Follows — inline-editable for reels */}
-                    <td
-                      className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]"
-                      onClick={(e) => { if (isReel) e.stopPropagation() }}
-                    >
-                      {isReel ? (
-                        editingCell?.rowId === row.id && editingCell.field === 'follows_count' ? (
-                          <input
-                            autoFocus
-                            type="number" min="0"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitEdit(row.id, 'follows_count') } if (e.key === 'Escape') cancelEdit() }}
-                            onBlur={() => commitEdit(row.id, 'follows_count')}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-16 rounded px-1.5 py-0.5 text-right text-[12px] text-[#f9fafb] outline-none"
-                            style={{ backgroundColor: 'rgba(37,99,235,0.15)', border: '1px solid rgba(37,99,235,0.35)' }}
-                            placeholder="0"
-                          />
-                        ) : (
-                          <span
-                            className="group inline-flex cursor-text items-center justify-end gap-1"
-                            onClick={() => startEdit(row.id, 'follows_count', row.follows_count)}
-                          >
-                            {row.follows_count_manual && <Pencil className="h-2.5 w-2.5 shrink-0 text-[#6b7280]" />}
-                            <span className="group-hover:text-[#93c5fd]">{fmtNum(row.follows_count)}</span>
-                            {row.follows_count == null && <Pencil className="h-2.5 w-2.5 shrink-0 text-[#4b5563] opacity-0 group-hover:opacity-100" />}
-                          </span>
-                        )
-                      ) : <span className="text-[#4b5563]">—</span>}
+                    {/* Follows — API for feed (IMAGE/CAROUSEL), not available for reels */}
+                    <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">
+                      {!isReel ? fmtNum(row.follows_count) : <span className="text-[#4b5563]">—</span>}
                     </td>
 
                     {/* Avg Watch — inline-editable for reels */}
@@ -1407,44 +1341,9 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                       ) : <span className="text-[#4b5563]">—</span>}
                     </td>
 
-                    {/* Avg Watch % — reels only, requires video_duration */}
+                    {/* Total Watch Time — reels only, from ig_reels_video_view_total_time */}
                     <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">
-                      {isReel ? fmtPct(avgWatchRate) : <span className="text-[#4b5563]">—</span>}
-                    </td>
-
-                    {/* Skip Rate — inline-editable for reels */}
-                    <td
-                      className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]"
-                      onClick={(e) => { if (isReel) e.stopPropagation() }}
-                    >
-                      {isReel ? (
-                        editingCell?.rowId === row.id && editingCell.field === 'skip_rate' ? (
-                          <span className="inline-flex items-center justify-end gap-1">
-                            <input
-                              autoFocus
-                              type="number" min="0" max="100" step="0.1"
-                              value={editValue}
-                              onChange={(e) => setEditValue(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitEdit(row.id, 'skip_rate') } if (e.key === 'Escape') cancelEdit() }}
-                              onBlur={() => commitEdit(row.id, 'skip_rate')}
-                              onClick={(e) => e.stopPropagation()}
-                              className="w-14 rounded px-1.5 py-0.5 text-right text-[12px] text-[#f9fafb] outline-none"
-                              style={{ backgroundColor: 'rgba(37,99,235,0.15)', border: '1px solid rgba(37,99,235,0.35)' }}
-                              placeholder="%"
-                            />
-                            <span className="text-[10px] text-[#6b7280]">%</span>
-                          </span>
-                        ) : (
-                          <span
-                            className="group inline-flex cursor-text items-center justify-end gap-1"
-                            onClick={() => startEdit(row.id, 'skip_rate', row.skip_rate)}
-                          >
-                            {row.skip_rate_manual && <Pencil className="h-2.5 w-2.5 shrink-0 text-[#6b7280]" />}
-                            <span className="group-hover:text-[#93c5fd]">{fmtPct(row.skip_rate)}</span>
-                            {row.skip_rate == null && <Pencil className="h-2.5 w-2.5 shrink-0 text-[#4b5563] opacity-0 group-hover:opacity-100" />}
-                          </span>
-                        )
-                      ) : <span className="text-[#4b5563]">—</span>}
+                      {isReel ? fmtTotalWatchTime(row.total_watch_time_ms) : <span className="text-[#4b5563]">—</span>}
                     </td>
 
                     {/* Engagement Rate */}
@@ -1455,19 +1354,6 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                     </td>
 
                     <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">{fmtPct(saveRate)}</td>
-
-                    {/* Profile Visit Rate */}
-                    <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">{fmtPct(profileVisitRate)}</td>
-
-                    {/* Replay Rate — views/reach, can exceed 100% */}
-                    <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">
-                      {isReel ? fmtPct(replayRate) : <span className="text-[#4b5563]">—</span>}
-                    </td>
-
-                    {/* Hook Rate — views/reach, reels only */}
-                    <td className="px-3 py-3 text-right font-mono text-[13px] text-[#d1d5db]">
-                      {isReel ? fmtPct(hookRate) : <span className="text-[#4b5563]">—</span>}
-                    </td>
                   </tr>
                 )
               })

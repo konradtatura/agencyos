@@ -175,9 +175,10 @@ function pickMetric(json: InsightsPage, name: string): number | null {
 }
 
 /**
- * Fetches the `follows` metric for a single VIDEO media item.
- * Only valid for VIDEO (Reels) — silently returns null for any API error.
- * Never throws; never affects the main metrics sync.
+ * Fetches the `follows` metric for a single FEED (IMAGE / CAROUSEL_ALBUM) media item.
+ * The `follows` metric is NOT valid for VIDEO/Reels — requesting it for a reel
+ * causes the entire insights call to return an error.
+ * Silently returns null for any API error; never throws.
  */
 async function fetchFollowsCount(mediaId: string, token: string): Promise<number | null> {
   try {
@@ -185,6 +186,23 @@ async function fetchFollowsCount(mediaId: string, token: string): Promise<number
     const json = await res.json() as InsightsPage
     if (json.error) return null
     return pickMetric(json, 'follows')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fetches `ig_reels_video_view_total_time` for a single Reel.
+ * Returns the total cumulative watch time in milliseconds.
+ * Marked "in development" but available on v22+.
+ * Only valid for VIDEO; silently returns null on any error.
+ */
+async function fetchTotalWatchTime(mediaId: string, token: string): Promise<number | null> {
+  try {
+    const res  = await fetch(`${FB_API}/${mediaId}/insights?metric=ig_reels_video_view_total_time&access_token=${token}`)
+    const json = await res.json() as InsightsPage
+    if (json.error) return null
+    return pickMetric(json, 'ig_reels_video_view_total_time')
   } catch {
     return null
   }
@@ -407,7 +425,7 @@ export async function syncPosts(
     follows_count:         number | null
     replays_count:         number | null
     avg_watch_time_ms:     number | null   // raw ms from API
-    skip_rate:             number | null
+    total_watch_time_ms:   number | null   // ig_reels_video_view_total_time (ms), reels only
     reposts_count:         number | null
     non_follower_reach:    number | null
     // Optional — set when preserving a manually-entered value
@@ -424,10 +442,11 @@ export async function syncPosts(
 
     // All supplemental fetch functions are isolated in their own try/catch and
     // return null on any error — they can never break the main metrics sync.
-    const [insights, followsCounts, replayCounts, avgWatchTimes, videoDurations, supplemental] = await Promise.all([
+    const [insights, followsCounts, replayCounts, avgWatchTimes, videoDurations, supplemental, totalWatchTimes] = await Promise.all([
       Promise.all(batch.map((m) => fetchPostInsights(m.id, token))),
+      // follows is only valid for FEED (IMAGE/CAROUSEL) — not for VIDEO/Reels
       Promise.all(batch.map((m) =>
-        m.media_type === 'VIDEO' ? fetchFollowsCount(m.id, token) : Promise.resolve(null)
+        m.media_type !== 'VIDEO' ? fetchFollowsCount(m.id, token) : Promise.resolve(null)
       )),
       Promise.all(batch.map((m) =>
         m.media_type === 'VIDEO' ? fetchReplayCount(m.id, token) : Promise.resolve(null)
@@ -446,6 +465,10 @@ export async function syncPosts(
         return fetchVideoDuration(m.id, token)
       })),
       Promise.all(batch.map((m) => fetchPostSupplementalMetrics(m.id, token))),
+      // ig_reels_video_view_total_time — total cumulative watch time (ms), reels only
+      Promise.all(batch.map((m) =>
+        m.media_type === 'VIDEO' ? fetchTotalWatchTime(m.id, token) : Promise.resolve(null)
+      )),
     ])
 
     for (let j = 0; j < batch.length; j++) {
@@ -465,15 +488,6 @@ export async function syncPosts(
         videoDurationUpdates.push({ id: post_id, video_duration: dur })
       }
 
-      // Skip rate: % of unique accounts reached who did NOT watch the reel.
-      // Only meaningful for VIDEO; null when views > reach (replay scenario).
-      const isReel   = m.media_type === 'VIDEO'
-      const v        = ins.views
-      const r        = ins.reach
-      const skipRate = (isReel && v != null && r != null && r > 0 && v <= r)
-        ? ((r - v) / r) * 100
-        : null
-
       metricsRows.push({
         post_id,
         synced_at:            syncedAt,
@@ -489,7 +503,7 @@ export async function syncPosts(
         follows_count:        followsCounts[j],
         replays_count:        replayCounts[j]      ?? null,
         avg_watch_time_ms:    avgWatchTimes[j]     ?? null,
-        skip_rate:            skipRate,
+        total_watch_time_ms:  totalWatchTimes[j]   ?? null,
         reposts_count:        supp?.reposts_count      ?? null,
         non_follower_reach:   supp?.non_follower_reach  ?? null,
       })
@@ -530,27 +544,19 @@ export async function syncPosts(
   if (postIdsInSync.length > 0) {
     const { data: existingMetrics } = await admin
       .from('instagram_post_metrics')
-      .select('post_id, follows_count, follows_count_manual, skip_rate, skip_rate_manual, avg_watch_time_ms, avg_watch_time_manual')
+      .select('post_id, avg_watch_time_ms, avg_watch_time_manual')
       .in('post_id', postIdsInSync)
       .order('synced_at', { ascending: false })
 
-    // Keep only the most-recent row per post that has any manual flag
+    // Keep only the most-recent row per post that has the manual avg_watch_time flag
     const manualByPost = new Map<string, {
-      follows_count:         number | null
-      follows_count_manual:  boolean
-      skip_rate:             number | null
-      skip_rate_manual:      boolean
       avg_watch_time_ms:     number | null
       avg_watch_time_manual: boolean
     }>()
     for (const row of existingMetrics ?? []) {
       if (!manualByPost.has(row.post_id)) {
-        if (row.follows_count_manual || row.skip_rate_manual || row.avg_watch_time_manual) {
+        if (row.avg_watch_time_manual) {
           manualByPost.set(row.post_id, {
-            follows_count:         row.follows_count         ?? null,
-            follows_count_manual:  row.follows_count_manual  ?? false,
-            skip_rate:             row.skip_rate             ?? null,
-            skip_rate_manual:      row.skip_rate_manual      ?? false,
             avg_watch_time_ms:     row.avg_watch_time_ms     ?? null,
             avg_watch_time_manual: row.avg_watch_time_manual ?? false,
           })
@@ -558,18 +564,10 @@ export async function syncPosts(
       }
     }
 
-    // Merge: if API returned null for a field that was manually entered, restore the manual value
+    // Merge: if API returned null for avg_watch_time that was manually entered, restore the manual value
     for (const row of metricsRows) {
       const prev = manualByPost.get(row.post_id)
       if (!prev) continue
-      if (row.follows_count == null && prev.follows_count_manual && prev.follows_count != null) {
-        row.follows_count          = prev.follows_count
-        row.follows_count_manual   = true
-      }
-      if (row.skip_rate == null && prev.skip_rate_manual && prev.skip_rate != null) {
-        row.skip_rate              = prev.skip_rate
-        row.skip_rate_manual       = true
-      }
       if (row.avg_watch_time_ms == null && prev.avg_watch_time_manual && prev.avg_watch_time_ms != null) {
         row.avg_watch_time_ms      = prev.avg_watch_time_ms
         row.avg_watch_time_manual  = true
