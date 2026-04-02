@@ -107,7 +107,9 @@ export default function EngagementRateChart({ data, allTimeAvg }: Props) {
     const cutoff = new Date()
     cutoff.setUTCDate(cutoff.getUTCDate() - range)
     const cutoffStr = cutoff.toISOString().split('T')[0]
-    return data.filter((p) => p.weekStart >= cutoffStr)
+    const filtered = data.filter((p) => p.weekStart >= cutoffStr)
+    // Fall back to all available data if the selected window has fewer than 2 points
+    return filtered.length >= 2 ? filtered : data
   }, [data, range])
 
   const { yMin, yMax } = useMemo(() => {
@@ -122,7 +124,7 @@ export default function EngagementRateChart({ data, allTimeAvg }: Props) {
     return { yMin: Math.max(0, lo - pad), yMax: hi + pad }
   }, [points, allTimeAvg])
 
-  const hasEnoughData = points.length >= 2
+  const hasEnoughData = points.length >= 1
 
   return (
     <div

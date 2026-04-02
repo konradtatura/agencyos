@@ -90,7 +90,7 @@ function RangeTabs({ range, onChange }: { range: Range; onChange: (r: Range) => 
 interface KpiCardProps {
   title:   string
   info?:   string   // optional tooltip shown on the (i) icon
-  compute: (snapshots: Snapshot[], range: Range, account: IgAccount) => { value: string; change?: number }
+  compute: (snapshots: Snapshot[], range: Range, account: IgAccount) => { value: string; change?: number; changeSuffix?: string }
   icon:    React.ComponentType<{ className?: string }>
   account: IgAccount
   snapshots: Snapshot[]
@@ -102,8 +102,7 @@ function KpiCard({ title, info, compute, icon, account, snapshots, loading }: Kp
 
   const previous = snapshots.slice(range, range * 2)
 
-  const { value, change } = compute(
-    // pass both windows via a combined array; compute receives full snapshots
+  const { value, change, changeSuffix } = compute(
     snapshots,
     range,
     account,
@@ -140,6 +139,7 @@ function KpiCard({ title, info, compute, icon, account, snapshots, loading }: Kp
         value={value}
         change={displayChange}
         changeLabel={`vs prev ${range}d`}
+        changeSuffix={changeSuffix}
         icon={icon as React.ComponentType<{ className?: string }> & Parameters<typeof StatCard>[0]['icon']}
         loading={loading}
       />
@@ -160,9 +160,12 @@ const METRICS = [
       const previous = snapshots.slice(range, range * 2)
       const curDelta  = sumField(current,  'followers_count')
       const prevDelta = sumField(previous, 'followers_count')
+      // Show raw follower-gain difference (not a ratio) — "+47" means 47 more
+      // net followers gained this period than the previous equivalent period.
       return {
-        value:  fmtNum(account.followers_count),
-        change: pctChange(curDelta, prevDelta),
+        value:        fmtNum(account.followers_count),
+        change:       curDelta - prevDelta,
+        changeSuffix: '',
       }
     },
   },

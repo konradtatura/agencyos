@@ -13,6 +13,8 @@ interface StatCardProps {
   change?: number
   /** Contextual label next to the change, e.g. "vs last week" */
   changeLabel?: string
+  /** Suffix appended to the change value. Defaults to '%'. Pass '' for raw numbers. */
+  changeSuffix?: string
   /** Optional Lucide icon rendered in the top-right corner */
   icon?: LucideIcon
   /** Render skeleton placeholders instead of real data */
@@ -25,6 +27,7 @@ export default function StatCard({
   value,
   change,
   changeLabel,
+  changeSuffix = '%',
   icon: Icon,
   loading = false,
   className,
@@ -90,7 +93,7 @@ export default function StatCard({
               !isPositive && !isNegative && 'text-[#4b5563]'
             )}
           >
-            {isPositive ? '+' : ''}{change}%
+            {isPositive ? '+' : ''}{change}{changeSuffix}
           </span>
 
           {changeLabel && (

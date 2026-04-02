@@ -10,6 +10,7 @@ import EngagementRateChart, { type PostEngPoint } from './engagement-rate-chart'
 import PostingCadenceChart, { type CadencePoint } from './posting-cadence-chart'
 import NetFollowersChart from './net-followers-chart'
 import FollowerSourceBreakdown from './follower-source-breakdown'
+import ContentFunnelChart, { type FunnelData } from './content-funnel-chart'
 
 const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000
 
@@ -91,6 +92,12 @@ export default async function InstagramPage() {
   let engAllTimeAvg: number | null = null
   let cadenceData:  CadencePoint[] = []
   let cadenceAvg    = 0
+  let funnelData:   FunnelData = {
+    views_7d: null, views_30d: null,
+    profile_visits_7d: null, profile_visits_30d: null,
+    website_clicks_7d: null, website_clicks_30d: null,
+    new_followers_7d: null,  new_followers_30d: null,
+  }
 
   if (profile && connected && igAccount) {
     const { data: posts } = await admin
@@ -104,28 +111,30 @@ export default async function InstagramPage() {
 
       const { data: metricsRaw } = await admin
         .from('instagram_post_metrics')
-        .select('post_id, reach, like_count, comments_count, saved, shares, synced_at')
+        .select('post_id, reach, like_count, comments_count, saved, shares, views, synced_at')
         .in('post_id', postIds)
         .order('synced_at', { ascending: false })
 
       // Keep only the latest metrics snapshot per post
-      const metricsMap = new Map<string, { reach: number | null; like_count: number | null; comments_count: number | null; saved: number | null; shares: number | null }>()
+      const metricsMap = new Map<string, { reach: number | null; like_count: number | null; comments_count: number | null; saved: number | null; shares: number | null; views: number | null }>()
       for (const m of metricsRaw ?? []) {
         if (!metricsMap.has(m.post_id)) metricsMap.set(m.post_id, m)
       }
 
-      // Per-post engagement rate + ISO week start (Monday)
-      const allRates: number[] = []
-      const weekBuckets = new Map<string, number[]>()
+      // Weekly engagement: SUM(interactions) / SUM(reach) × 100 per ISO week
+      // (ratio of totals per week, not average of per-post rates)
+      const weekBuckets = new Map<string, { interactions: number; reach: number; count: number }>()
+      let totalInteractions = 0
+      let totalReach = 0
 
       for (const post of posts) {
         const m = metricsMap.get(post.id)
-        if (!m || !m.reach || m.reach === 0) continue
+        if (!m || m.reach == null || m.reach === 0) continue
         const interactions =
           (m.like_count ?? 0) + (m.comments_count ?? 0) + (m.saved ?? 0) + (m.shares ?? 0)
-        const rate = (interactions / m.reach) * 100
 
-        allRates.push(rate)
+        totalInteractions += interactions
+        totalReach       += m.reach
 
         // ISO week start = Monday of the post's week
         const d = new Date(post.posted_at)
@@ -134,22 +143,24 @@ export default async function InstagramPage() {
         d.setUTCDate(d.getUTCDate() - toMonday)
         const weekStart = d.toISOString().split('T')[0]
 
-        const bucket = weekBuckets.get(weekStart) ?? []
-        bucket.push(rate)
+        const bucket = weekBuckets.get(weekStart) ?? { interactions: 0, reach: 0, count: 0 }
+        bucket.interactions += interactions
+        bucket.reach        += m.reach
+        bucket.count        += 1
         weekBuckets.set(weekStart, bucket)
       }
 
-      // All-time average
-      if (allRates.length > 0) {
-        engAllTimeAvg = allRates.reduce((s, r) => s + r, 0) / allRates.length
+      // All-time average (SUM/SUM across all posts)
+      if (totalReach > 0) {
+        engAllTimeAvg = (totalInteractions / totalReach) * 100
       }
 
       // Build sorted weekly engagement points (oldest → newest)
       engData = Array.from(weekBuckets.entries())
-        .map(([weekStart, rates]) => ({
+        .map(([weekStart, b]) => ({
           weekStart,
-          avgEngRate: rates.reduce((s, r) => s + r, 0) / rates.length,
-          postCount:  rates.length,
+          avgEngRate: (b.interactions / b.reach) * 100,
+          postCount:  b.count,
         }))
         .sort((a, b) => a.weekStart.localeCompare(b.weekStart))
 
@@ -202,6 +213,35 @@ export default async function InstagramPage() {
           newFollowers: followersByWeek.has(weekStart) ? (followersByWeek.get(weekStart) ?? null) : null,
         }))
       cadenceAvg = cadenceData.reduce((s, p) => s + p.count, 0) / cadenceData.length
+
+      // ── Funnel: SUM(views) for posts within last 7d / 30d ─────────────
+      const now7d  = new Date(Date.now() -  7 * 24 * 60 * 60 * 1000).toISOString()
+      const now30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      let views7 = 0, views30 = 0
+      for (const post of posts) {
+        const m = metricsMap.get(post.id)
+        const v = m?.views ?? null
+        if (v == null) continue
+        if (post.posted_at >= now7d)  views7  += v
+        if (post.posted_at >= now30d) views30 += v
+      }
+
+      // Net new followers from daily snapshot deltas (followers_count = daily net delta)
+      const newFollowers7  = snapshots.slice(0,  7).reduce((s, r) => s + (r.followers_count ?? 0), 0)
+      const newFollowers30 = snapshots.slice(0, 30).reduce((s, r) => s + (r.followers_count ?? 0), 0)
+
+      // Period-total profile visits + website clicks come from the latest snapshot row
+      const latestSnap = snapshots[0] ?? null
+      funnelData = {
+        views_7d:           views7  > 0 ? views7  : null,
+        views_30d:          views30 > 0 ? views30 : null,
+        profile_visits_7d:  latestSnap?.profile_views_7d   ?? null,
+        profile_visits_30d: latestSnap?.profile_views_30d  ?? null,
+        website_clicks_7d:  latestSnap?.website_clicks_7d  ?? null,
+        website_clicks_30d: latestSnap?.website_clicks_30d ?? null,
+        new_followers_7d:   newFollowers7,
+        new_followers_30d:  newFollowers30,
+      }
     }
   }
 
@@ -338,7 +378,10 @@ export default async function InstagramPage() {
           {/* ── Section 3b: Daily Reach Chart ──────────────────────────── */}
           <ReachChart snapshots={snapshots} />
 
-          {/* ── Section 3c: Engagement Rate + Posting Cadence ─────────── */}
+          {/* ── Section 3c: Content Funnel ─────────────────────────────── */}
+          <ContentFunnelChart data={funnelData} />
+
+          {/* ── Section 3d: Engagement Rate + Posting Cadence ─────────── */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <EngagementRateChart data={engData} allTimeAvg={engAllTimeAvg} />
             <PostingCadenceChart data={cadenceData} avgPerWeek={cadenceAvg} />
