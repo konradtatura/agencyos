@@ -132,10 +132,11 @@ async function fetchPostInsights(
     reach: null, saved: null, shares: null, views: null, total_interactions: null, profile_visits: null,
   }
 
-  // `views` is only valid for VIDEO/REEL; request it anyway and handle the error.
-  // `total_interactions` is a summary metric — also may be absent on older posts.
-  // `profile_visits` counts accounts that visited the profile after seeing this post.
-  const metrics = 'reach,saved,shares,views,total_interactions,profile_visits'
+  // `views` is valid for all media types in v22+ (replaces `impressions`).
+  // `total_interactions` is a summary metric — may be absent on older posts.
+  // `profile_visits` is NOT a valid per-post insights metric in v22 — requesting
+  // it causes the entire call to return an error, silently nulling all other fields.
+  const metrics = 'reach,saved,shares,views,total_interactions'
 
   try {
     const url =
