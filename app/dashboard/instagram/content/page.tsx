@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import PageHeader from '@/components/ui/page-header'
 import SyncBar from '../sync-bar'
 import InstagramTabs from '../instagram-tabs'
-import PostsTable, { type PostRow } from './posts-table'
+import PostsTable, { type PostRow, type ReelGroup } from './posts-table'
 
 export default async function ContentPage({
   searchParams,
@@ -60,7 +60,7 @@ export default async function ContentPage({
   const { data: rawPosts } = (profile && connected)
     ? await admin
         .from('instagram_posts')
-        .select('id, ig_media_id, caption, media_type, media_url, thumbnail_url, permalink, posted_at, transcript_status, is_trial, video_duration')
+        .select('id, ig_media_id, caption, media_type, media_url, thumbnail_url, permalink, posted_at, transcript_status, is_trial, video_duration, reel_group_id')
         .eq('creator_id', profile.id)
         .order('posted_at', { ascending: false })
     : { data: null }
@@ -71,7 +71,7 @@ export default async function ContentPage({
   // Fetch all metrics rows for these posts, then keep only the latest per post.
   const postIds = posts.map((p) => p.id)
 
-  const [{ data: rawMetrics }, { data: rawTranscripts }] = await Promise.all([
+  const [{ data: rawMetrics }, { data: rawTranscripts }, { data: rawGroups }] = await Promise.all([
     postIds.length
       ? admin
           .from('instagram_post_metrics')
@@ -84,6 +84,13 @@ export default async function ContentPage({
           .from('post_transcripts')
           .select('post_id, transcript_text')
           .in('post_id', postIds)
+      : Promise.resolve({ data: null }),
+    profile
+      ? admin
+          .from('reel_groups')
+          .select('id, name, created_at')
+          .eq('creator_id', profile.id)
+          .order('created_at', { ascending: true })
       : Promise.resolve({ data: null }),
   ])
 
@@ -145,6 +152,7 @@ export default async function ContentPage({
       transcript_status:   (p.transcript_status ?? 'none') as PostRow['transcript_status'],
       is_trial:            p.is_trial ?? false,
       video_duration:      (p as Record<string, unknown>).video_duration as number | null ?? null,
+      reel_group_id:       (p as Record<string, unknown>).reel_group_id as string | null ?? null,
       reach:              m?.reach              ?? null,
       saved:              m?.saved              ?? null,
       shares:             m?.shares             ?? null,
@@ -172,6 +180,13 @@ export default async function ContentPage({
     }
   }
 
+  // ── Groups ────────────────────────────────────────────────────────────────
+  const groups: ReelGroup[] = (rawGroups ?? []).map((g) => ({
+    id:         g.id,
+    name:       g.name,
+    created_at: g.created_at,
+  }))
+
   return (
     <div>
       <PageHeader
@@ -187,7 +202,7 @@ export default async function ContentPage({
 
       <div className="mt-6">
         {connected ? (
-          <PostsTable rows={rows} transcripts={transcriptMap} focusPostId={params?.post ?? null} />
+          <PostsTable rows={rows} transcripts={transcriptMap} groups={groups} focusPostId={params?.post ?? null} />
         ) : (
           <div
             className="flex min-h-[40vh] items-center justify-center rounded-xl"

@@ -14,6 +14,7 @@
 
 import OpenAI from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { autoGroupReel } from '@/lib/auto-group-reels'
 
 // ── Whisper config ────────────────────────────────────────────────────────────
 
@@ -125,6 +126,19 @@ export async function transcribeReel(
     .from('instagram_posts')
     .update({ transcript_status: 'done' })
     .eq('id', postId)
+
+  // Auto-group by transcript similarity (fire-and-forget; never block the response)
+  const { data: postMeta } = await admin
+    .from('instagram_posts')
+    .select('creator_id')
+    .eq('id', postId)
+    .single()
+
+  if (postMeta?.creator_id) {
+    autoGroupReel(postId, postMeta.creator_id).catch((err) => {
+      console.error('[whisper] auto-group failed', { postId, error: err })
+    })
+  }
 
   return { success: true, transcript }
 }

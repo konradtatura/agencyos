@@ -1,12 +1,18 @@
 'use client'
 
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Play, ChevronUp, ChevronDown, ChevronsUpDown, Search, CheckSquare, Square, Pencil } from 'lucide-react'
+import { Play, ChevronUp, ChevronDown, ChevronsUpDown, Search, CheckSquare, Square, Pencil, Link2, ChevronRight, MoreHorizontal, X, Layers } from 'lucide-react'
 import PostDetailPanel from './post-detail-panel'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+
+export interface ReelGroup {
+  id:         string
+  name:       string
+  created_at: string
+}
 
 export interface PostRow {
   id:                  string
@@ -19,6 +25,7 @@ export interface PostRow {
   posted_at:           string
   transcript_status:   'none' | 'processing' | 'done'
   is_trial:            boolean
+  reel_group_id:       string | null
   reach:               number | null
   saved:               number | null
   shares:              number | null
@@ -69,7 +76,9 @@ type SortKey =
 
 type SortDir = 'asc' | 'desc'
 
-type MediaFilter = 'ALL' | 'VIDEO' | 'IMAGE' | 'CAROUSEL_ALBUM' | 'TRIAL' | 'NORMAL_REELS'
+type MediaFilter = 'ALL' | 'VIDEO' | 'IMAGE' | 'CAROUSEL_ALBUM' | 'TRIAL' | 'NORMAL_REELS' | 'GROUPED'
+
+type ViewMode = 'table' | 'groups'
 
 type DateRange = '7d' | '30d' | '90d' | 'all'
 
@@ -327,9 +336,10 @@ interface Props {
   transcripts?:  Record<string, string>   // post_id → transcript_text
   loading?:      boolean
   focusPostId?:  string | null
+  groups?:       ReelGroup[]
 }
 
-export default function PostsTable({ rows, transcripts = {}, loading = false, focusPostId = null }: Props) {
+export default function PostsTable({ rows, transcripts = {}, loading = false, focusPostId = null, groups: initialGroups = [] }: Props) {
   const router = useRouter()
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -363,6 +373,21 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
   const [metricOverrides, setMetricOverrides] = useState<Map<string, Partial<PostRow>>>(new Map())
   const committingRef = useRef(false)
 
+  // ── Grouping state ─────────────────────────────────────────────────────────
+  const [viewMode,        setViewMode]        = useState<ViewMode>('table')
+  const [expandedGroups,  setExpandedGroups]  = useState<Set<string>>(new Set())
+  const [localGroups,     setLocalGroups]     = useState<ReelGroup[]>(initialGroups)
+  const [groupOverrides,  setGroupOverrides]  = useState<Map<string, string | null>>(new Map())
+  // Context menu
+  const [contextMenu, setContextMenu] = useState<{ postId: string; x: number; y: number } | null>(null)
+  // Group assignment modal
+  const [groupModal, setGroupModal] = useState<{ postId: string } | null>(null)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [creatingGroup, setCreatingGroup] = useState(false)
+  // Inline group rename
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null)
+  const [renameValue,     setRenameValue]     = useState('')
+
   // Auto-open from URL param (?post=<ig_media_id>)
   useEffect(() => {
     if (!focusPostId) return
@@ -371,21 +396,23 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusPostId, rows])
 
-  // Merge server rows with optimistic overrides (trial + transcript status + inline metric edits)
+  // Merge server rows with optimistic overrides (trial + transcript status + inline metric edits + group)
   const mergedRows = useMemo(() => {
     return rows.map((r) => {
       const trialVal      = trialOverrides.get(r.id)
       const transcriptVal = transcriptOverrides.get(r.id)
       const metricOver    = metricOverrides.get(r.id)
-      if (trialVal === undefined && transcriptVal === undefined && !metricOver) return r
+      const groupOver     = groupOverrides.has(r.id) ? groupOverrides.get(r.id) : undefined
+      if (trialVal === undefined && transcriptVal === undefined && !metricOver && groupOver === undefined) return r
       return {
         ...r,
         ...(trialVal      !== undefined ? { is_trial:          trialVal      } : {}),
         ...(transcriptVal !== undefined ? { transcript_status: transcriptVal } : {}),
+        ...(groupOver     !== undefined ? { reel_group_id:     groupOver     } : {}),
         ...(metricOver    ?? {}),
       }
     })
-  }, [rows, trialOverrides, transcriptOverrides, metricOverrides])
+  }, [rows, trialOverrides, transcriptOverrides, metricOverrides, groupOverrides])
 
   // ── Derived data ───────────────────────────────────────────────────────────
   const averages = useMemo(() => computeAverages(mergedRows), [mergedRows])
@@ -482,6 +509,7 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
       case 'CAROUSEL_ALBUM': r = r.filter((p) => p.media_type === 'CAROUSEL_ALBUM'); break
       case 'TRIAL':          r = r.filter((p) => p.media_type === 'VIDEO' && p.is_trial); break
       case 'NORMAL_REELS':   r = r.filter((p) => p.media_type === 'VIDEO' && !p.is_trial); break
+      case 'GROUPED':        r = r.filter((p) => p.reel_group_id !== null); break
     }
 
     if (dateRange !== 'all') {
@@ -740,6 +768,75 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
     setEditValue('')
   }
 
+  // ── Group helpers ──────────────────────────────────────────────────────────
+
+  const callGroupsApi = useCallback(async (body: Record<string, unknown>) => {
+    const res = await fetch('/api/instagram/posts/groups', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    })
+    return res.ok ? res.json() : null
+  }, [])
+
+  async function handleAssignGroup(postId: string, groupId: string | null) {
+    setGroupOverrides((prev) => new Map(prev).set(postId, groupId))
+    setContextMenu(null)
+    setGroupModal(null)
+    await callGroupsApi({ action: 'assign', post_id: postId, group_id: groupId })
+  }
+
+  async function handleCreateAndAssign(postId: string) {
+    const name = newGroupName.trim()
+    if (!name) return
+    setCreatingGroup(true)
+    const result = await callGroupsApi({ action: 'create', name })
+    if (result?.group) {
+      setLocalGroups((prev) => [...prev, result.group as ReelGroup])
+      await handleAssignGroup(postId, result.group.id)
+    }
+    setNewGroupName('')
+    setCreatingGroup(false)
+  }
+
+  async function handleRenameGroup(groupId: string) {
+    const name = renameValue.trim()
+    if (!name) { setRenamingGroupId(null); return }
+    setLocalGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, name } : g))
+    setRenamingGroupId(null)
+    setRenameValue('')
+    await callGroupsApi({ action: 'rename', group_id: groupId, name })
+  }
+
+  async function handleUngroupAll(groupId: string) {
+    // Optimistically clear all posts in this group
+    setGroupOverrides((prev) => {
+      const next = new Map(prev)
+      mergedRows
+        .filter((r) => r.reel_group_id === groupId)
+        .forEach((r) => next.set(r.id, null))
+      return next
+    })
+    setLocalGroups((prev) => prev.filter((g) => g.id !== groupId))
+    await callGroupsApi({ action: 'ungroup_all', group_id: groupId })
+  }
+
+  // Groups view data — compute once from sorted rows
+  const groupsViewData = useMemo(() => {
+    const groupMap = new Map<string, PostRow[]>()
+    const ungrouped: PostRow[] = []
+    for (const row of sorted) {
+      if (row.reel_group_id) {
+        const bucket = groupMap.get(row.reel_group_id) ?? []
+        bucket.push(row)
+        groupMap.set(row.reel_group_id, bucket)
+      } else {
+        ungrouped.push(row)
+      }
+    }
+    return { groupMap, ungrouped }
+  }, [sorted])
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const filterTabs: { key: MediaFilter; label: string }[] = [
@@ -747,6 +844,7 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
     { key: 'VIDEO',          label: 'Reels' },
     { key: 'TRIAL',          label: 'Trial Reels' },
     { key: 'NORMAL_REELS',   label: 'Normal Reels' },
+    { key: 'GROUPED',        label: 'Grouped' },
     { key: 'IMAGE',          label: 'Images' },
     { key: 'CAROUSEL_ALBUM', label: 'Carousels' },
   ]
@@ -815,6 +913,22 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
           Export CSV
         </button>
 
+        {/* View mode toggle */}
+        <button
+          type="button"
+          onClick={() => setViewMode((m) => m === 'table' ? 'groups' : 'table')}
+          title={viewMode === 'groups' ? 'Switch to table view' : 'Switch to groups view'}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition-all"
+          style={
+            viewMode === 'groups'
+              ? { backgroundColor: 'rgba(37,99,235,0.18)', border: '1px solid rgba(37,99,235,0.30)', color: '#60a5fa' }
+              : { backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#9ca3af' }
+          }
+        >
+          <Layers className="h-3.5 w-3.5" />
+          Groups
+        </button>
+
         {/* Bulk select / cancel */}
         <div className="ml-auto">
           {bulkMode ? (
@@ -839,8 +953,197 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
         </div>
       </div>
 
+      {/* ── Groups view ──────────────────────────────────────────────── */}
+      {viewMode === 'groups' && (
+        <div className="space-y-2">
+          {/* Group rows */}
+          {Array.from(groupsViewData.groupMap.entries()).map(([groupId, groupRows]) => {
+            const group      = localGroups.find((g) => g.id === groupId)
+            const isExpanded = expandedGroups.has(groupId)
+            const sumViews   = groupRows.reduce((s: number, r: PostRow) => s + (r.views ?? 0), 0)
+            const sumReach   = groupRows.reduce((s: number, r: PostRow) => s + (r.reach ?? 0), 0)
+            const sumLikes   = groupRows.reduce((s: number, r: PostRow) => s + (r.like_count ?? 0), 0)
+            const avgEng     = avgOf(groupRows.map((r: PostRow) => calcEngagementRate(r)))
+            const avgWatch   = avgOf(groupRows.map((r: PostRow) => calcAvgWatchRate(r)))
+            return (
+              <div
+                key={groupId}
+                className="overflow-hidden rounded-xl"
+                style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}
+              >
+                {/* Group header row */}
+                <div
+                  className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-white/[0.02]"
+                  onClick={() => setExpandedGroups((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(groupId)) next.delete(groupId)
+                    else next.add(groupId)
+                    return next
+                  })}
+                >
+                  <ChevronRight
+                    className="h-4 w-4 shrink-0 text-[#6b7280] transition-transform"
+                    style={{ transform: isExpanded ? 'rotate(90deg)' : undefined }}
+                  />
+                  {/* Group name — inline editable */}
+                  {renamingGroupId === groupId ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); handleRenameGroup(groupId) }
+                        if (e.key === 'Escape') { setRenamingGroupId(null) }
+                      }}
+                      onBlur={() => handleRenameGroup(groupId)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="rounded px-2 py-0.5 text-[13px] font-semibold text-[#f9fafb] outline-none"
+                      style={{ backgroundColor: 'rgba(37,99,235,0.15)', border: '1px solid rgba(37,99,235,0.35)', minWidth: 180 }}
+                    />
+                  ) : (
+                    <span
+                      className="text-[13px] font-semibold text-[#f9fafb]"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation()
+                        setRenamingGroupId(groupId)
+                        setRenameValue(group?.name ?? '')
+                      }}
+                      title="Double-click to rename"
+                    >
+                      {group?.name ?? 'Unknown Group'}
+                    </span>
+                  )}
+                  <span className="rounded px-1.5 py-0.5 text-[11px] text-[#6b7280]"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
+                    {groupRows.length} reel{groupRows.length !== 1 ? 's' : ''}
+                  </span>
+                  {/* Combined metrics */}
+                  <div className="ml-auto flex items-center gap-5 text-[12px] text-[#9ca3af]">
+                    <span title="Total views"><span className="text-[#d1d5db] font-mono">{fmtNum(sumViews)}</span> views</span>
+                    <span title="Total reach"><span className="text-[#d1d5db] font-mono">{fmtNum(sumReach)}</span> reach</span>
+                    <span title="Total likes"><span className="text-[#d1d5db] font-mono">{fmtNum(sumLikes)}</span> likes</span>
+                    <span title="Avg engagement rate"><span className="text-[#d1d5db] font-mono">{fmtPct(avgEng)}</span> eng</span>
+                    <span title="Avg watch %"><span className="text-[#d1d5db] font-mono">{fmtPct(avgWatch)}</span> watch</span>
+                  </div>
+                  {/* Group actions */}
+                  <div className="flex items-center gap-1 pl-3" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => { setRenamingGroupId(groupId); setRenameValue(group?.name ?? '') }}
+                      className="rounded px-2 py-0.5 text-[11px] text-[#6b7280] hover:bg-white/10 hover:text-[#9ca3af]"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUngroupAll(groupId)}
+                      className="rounded px-2 py-0.5 text-[11px] text-[#6b7280] hover:bg-red-500/10 hover:text-red-400"
+                    >
+                      Ungroup all
+                    </button>
+                  </div>
+                </div>
+                {/* Expanded reels */}
+                {isExpanded && (
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                    {groupRows.map((row: PostRow) => {
+                      const engRate = calcEngagementRate(row)
+                      return (
+                        <div
+                          key={row.id}
+                          className="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-[13px] transition-colors hover:bg-white/[0.02]"
+                          style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}
+                          onClick={() => { setSelectedPost(row); setOpenWithTranscript(false) }}
+                        >
+                          <div className="w-4 shrink-0" />
+                          {row.thumbnail_url || row.media_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={row.thumbnail_url ?? row.media_url ?? ''}
+                              alt=""
+                              width={36} height={36}
+                              className="h-9 w-9 shrink-0 rounded-md object-cover"
+                              style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+                            />
+                          ) : (
+                            <div className="h-9 w-9 shrink-0 rounded-md" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }} />
+                          )}
+                          <span className="flex-1 truncate text-[#d1d5db]" title={row.caption ?? ''}>
+                            {truncate(row.caption, 60) || <span className="text-[#4b5563]">No caption</span>}
+                          </span>
+                          <span className="shrink-0 text-[12px] text-[#6b7280]">{fmtDate(row.posted_at)}</span>
+                          <span className="w-20 text-right font-mono text-[#9ca3af]">{fmtNum(row.views)}</span>
+                          <span className="w-20 text-right font-mono text-[#9ca3af]">{fmtNum(row.reach)}</span>
+                          <span className="w-20 text-right font-mono" style={{ color: engRate !== null && engRate >= 3 ? '#34d399' : '#9ca3af' }}>
+                            {fmtPct(engRate)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleAssignGroup(row.id, null) }}
+                            className="rounded p-1 text-[#4b5563] hover:bg-red-500/10 hover:text-red-400"
+                            title="Remove from group"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          {/* Ungrouped reels */}
+          {groupsViewData.ungrouped.length > 0 && (
+            <div
+              className="overflow-hidden rounded-xl"
+              style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              <div className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-[#4b5563]">
+                Ungrouped ({groupsViewData.ungrouped.length})
+              </div>
+              {groupsViewData.ungrouped.map((row) => (
+                <div
+                  key={row.id}
+                  className="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-[13px] transition-colors hover:bg-white/[0.02]"
+                  style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}
+                  onClick={() => { setSelectedPost(row); setOpenWithTranscript(false) }}
+                >
+                  {row.thumbnail_url || row.media_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={row.thumbnail_url ?? row.media_url ?? ''}
+                      alt=""
+                      width={36} height={36}
+                      className="h-9 w-9 shrink-0 rounded-md object-cover"
+                      style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+                    />
+                  ) : (
+                    <div className="h-9 w-9 shrink-0 rounded-md" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }} />
+                  )}
+                  <span className="flex-1 truncate text-[#d1d5db]">{truncate(row.caption, 60) || <span className="text-[#4b5563]">No caption</span>}</span>
+                  <span className="text-[12px] text-[#6b7280]">{fmtDate(row.posted_at)}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setGroupModal({ postId: row.id }) }}
+                    className="rounded px-2 py-0.5 text-[11px] text-[#6b7280] hover:bg-white/10 hover:text-[#9ca3af]"
+                  >
+                    Add to group
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {groupsViewData.groupMap.size === 0 && groupsViewData.ungrouped.length === 0 && (
+            <div className="py-16 text-center text-[14px] text-[#6b7280]">No reels match the current filter.</div>
+          )}
+        </div>
+      )}
+
       {/* ── Table ────────────────────────────────────────────────────── */}
-      <div
+      {viewMode === 'table' && <div
         className="overflow-x-auto rounded-xl"
         style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}
       >
@@ -904,7 +1207,7 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                 return (
                   <tr
                     key={row.id}
-                    className="cursor-pointer transition-colors"
+                    className="group/row cursor-pointer transition-colors"
                     style={{
                       borderBottom: '1px solid rgba(255,255,255,0.04)',
                       backgroundColor: isSelected ? 'rgba(37,99,235,0.08)' : undefined,
@@ -916,6 +1219,10 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                       e.currentTarget.style.backgroundColor = isSelected ? 'rgba(37,99,235,0.08)' : ''
                     }}
                     onClick={() => handleRowClick(row)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      setContextMenu({ postId: row.id, x: e.clientX, y: e.clientY })
+                    }}
                   >
                     {/* Bulk checkbox */}
                     {bulkMode && (
@@ -977,6 +1284,11 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                       <div className="flex flex-wrap items-center gap-1.5">
                         <TypeBadge type={row.media_type} />
                         {row.is_trial && <TrialBadge />}
+                        {row.reel_group_id && (
+                          <span title="Part of a script group">
+                            <Link2 className="h-3 w-3 text-[#60a5fa]" />
+                          </span>
+                        )}
                         {/* Transcript status dot — reels only */}
                         {isReel && (
                           <TranscriptDot
@@ -984,6 +1296,18 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
                             onClick={(e) => handleTranscriptDotClick(e, row)}
                           />
                         )}
+                        {/* Row menu */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setContextMenu({ postId: row.id, x: e.clientX, y: e.clientY })
+                          }}
+                          className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 hover:bg-white/10"
+                          title="Row actions"
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5 text-[#6b7280]" />
+                        </button>
                       </div>
                     </td>
 
@@ -1135,7 +1459,7 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
             )}
           </tbody>
         </table>
-      </div>
+      </div>}
 
       {/* ── Pagination ───────────────────────────────────────────────── */}
       {!loading && sorted.length > PAGE_SIZE && (
@@ -1191,6 +1515,113 @@ export default function PostsTable({ rows, transcripts = {}, loading = false, fo
           onTranscribed={handleTranscribed}
           onTranscribeFailed={handleTranscribeFailed}
         />
+      )}
+
+      {/* ── Context menu ─────────────────────────────────────────────── */}
+      {contextMenu && (() => {
+        const cmRow = mergedRows.find((r) => r.id === contextMenu.postId)
+        return (
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setContextMenu(null)}
+            />
+            <div
+              className="fixed z-50 overflow-hidden rounded-xl py-1 shadow-2xl"
+              style={{
+                top:             contextMenu.y,
+                left:            contextMenu.x,
+                backgroundColor: '#1e293b',
+                border:          '1px solid rgba(255,255,255,0.10)',
+                minWidth:        180,
+              }}
+            >
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-4 py-2 text-left text-[13px] text-[#d1d5db] hover:bg-white/[0.06]"
+                onClick={() => { setGroupModal({ postId: contextMenu.postId }); setContextMenu(null) }}
+              >
+                <Link2 className="h-3.5 w-3.5 text-[#6b7280]" />
+                {cmRow?.reel_group_id ? 'Change group' : 'Add to group'}
+              </button>
+              {cmRow?.reel_group_id && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-4 py-2 text-left text-[13px] text-red-400 hover:bg-red-500/10"
+                  onClick={() => { handleAssignGroup(contextMenu.postId, null) }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Remove from group
+                </button>
+              )}
+            </div>
+          </>
+        )
+      })()}
+
+      {/* ── Group assignment modal ────────────────────────────────────── */}
+      {groupModal && (
+        <>
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+            onClick={() => setGroupModal(null)}
+          >
+            <div
+              className="relative w-full max-w-sm overflow-hidden rounded-2xl shadow-2xl"
+              style={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.10)' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <span className="text-[14px] font-semibold text-[#f9fafb]">Assign to group</span>
+                <button type="button" onClick={() => setGroupModal(null)}>
+                  <X className="h-4 w-4 text-[#6b7280]" />
+                </button>
+              </div>
+              <div className="max-h-64 overflow-y-auto px-3 py-2">
+                {localGroups.length === 0 && (
+                  <p className="px-2 py-3 text-[13px] text-[#6b7280]">No groups yet. Create one below.</p>
+                )}
+                {localGroups.map((g) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => handleAssignGroup(groupModal.postId, g.id)}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13px] text-[#d1d5db] hover:bg-white/[0.06]"
+                  >
+                    <Link2 className="h-3.5 w-3.5 shrink-0 text-[#6b7280]" />
+                    {g.name}
+                  </button>
+                ))}
+              </div>
+              {/* Create new group */}
+              <div className="px-4 pb-4 pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#6b7280]">Create new group</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Group name…"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleCreateAndAssign(groupModal.postId) }}
+                    className="flex-1 rounded-lg px-3 py-1.5 text-[13px] text-[#f9fafb] outline-none placeholder:text-[#4b5563] focus:ring-1 focus:ring-[#2563eb]/50"
+                    style={{ backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
+                  />
+                  <button
+                    type="button"
+                    disabled={!newGroupName.trim() || creatingGroup}
+                    onClick={() => handleCreateAndAssign(groupModal.postId)}
+                    className="rounded-lg px-3 py-1.5 text-[12.5px] font-semibold disabled:opacity-40"
+                    style={{ backgroundColor: 'rgba(37,99,235,0.20)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.30)' }}
+                  >
+                    {creatingGroup ? '…' : 'Create'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── Bulk action bar ───────────────────────────────────────────── */}
