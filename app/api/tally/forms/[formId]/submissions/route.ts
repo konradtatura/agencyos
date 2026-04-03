@@ -46,11 +46,13 @@ export async function GET(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Form not found' }, { status: 404 })
   }
 
+  // Filter by form_id only — the form ownership check above already scopes
+  // access to this creator. Filtering by creator_id would exclude submissions
+  // synced before the form was assigned (where creator_id is still null).
   const { data: submissions } = await admin
     .from('tally_submissions')
     .select('id, tally_submission_id, respondent_name, respondent_phone, respondent_ig_handle, answers, submitted_at, lead_id')
     .eq('form_id', params.formId)
-    .eq('creator_id', creatorId)
     .order('submitted_at', { ascending: false })
 
   return NextResponse.json({ form, submissions: submissions ?? [] })
