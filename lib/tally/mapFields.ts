@@ -1,12 +1,14 @@
 /**
  * Tally field mapping utility.
  *
- * Parses the `fields` array from a Tally submission (submissions API or webhook)
- * and auto-detects common contact fields by label. All raw fields are stored in
- * the `answers` JSONB blob regardless of whether they were auto-detected.
+ * Supports two Tally response shapes:
  *
- * Confirmed Tally field shape (submissions API):
- *   { key: string, label: string, type?: string, value: unknown, options?: [...] }
+ * Shape A — legacy fields array (webhooks):
+ *   submission.fields: [{ key, label, type, value, options? }]
+ *
+ * Shape B — responses dict (submissions API):
+ *   submission.responses: { [questionId]: { value } }
+ *   questions: [{ id, title }]  ← supply questionMap built from this
  */
 
 export interface TallyField {
@@ -53,6 +55,43 @@ function stringValue(value: unknown, options?: { id: string; text: string }[]): 
 
   // Object — convert to JSON string as last resort
   return JSON.stringify(value)
+}
+
+/**
+ * Map a submission whose answers live in submission.responses
+ * (the shape returned by the Tally submissions API).
+ *
+ * @param responses  { [questionId]: { value: unknown } }
+ * @param questionMap  Map<questionId, questionTitle> built from the top-level questions array
+ */
+export function mapTallyResponses(
+  responses: Record<string, { value?: unknown }>,
+  questionMap: Map<string, string>,
+): MappedSubmission {
+  let name:  string | null = null
+  let phone: string | null = null
+  let ig:    string | null = null
+  const answers: Record<string, unknown> = {}
+
+  for (const [questionId, response] of Object.entries(responses)) {
+    const displayKey = questionMap.get(questionId) ?? questionId
+    const val = stringValue(response?.value)
+    const lower = displayKey.toLowerCase()
+
+    answers[displayKey] = val
+
+    if (name  === null && (lower.includes('imię') || lower.includes('name') || lower.includes('first name'))) {
+      name = val
+    }
+    if (phone === null && (lower.includes('telefon') || lower.includes('phone') || lower.includes('numer'))) {
+      phone = val
+    }
+    if (ig    === null && (lower.includes('instagram') || lower.includes(' ig ') || lower.includes('handle'))) {
+      ig = val
+    }
+  }
+
+  return { name, phone, ig, answers }
 }
 
 export function mapTallySubmission(fields: TallyField[]): MappedSubmission {

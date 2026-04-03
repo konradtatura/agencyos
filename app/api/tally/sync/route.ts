@@ -3,13 +3,14 @@
  *
  * Agency-wide sync: pulls ALL forms and submissions from Tally using the
  * agency-level API key. Creator assignment on existing forms is preserved.
+ * Saves questions array + completion counts for funnel analytics.
  */
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAgencyTallyKey } from '@/lib/tally/agencyKey'
-import { mapTallySubmission, type TallyField } from '@/lib/tally/mapFields'
+import { mapTallySubmission, mapTallyResponses, type TallyField } from '@/lib/tally/mapFields'
 
 interface TallyFormItem {
   id: string
@@ -18,30 +19,49 @@ interface TallyFormItem {
   workspace?: { name?: string }
 }
 
-interface TallySubmissionItem {
-  id: string
-  submittedAt?: string
-  createdAt?:   string
-  fields?:      TallyField[]
-  responses?:   TallyField[]   // alternate key some Tally versions use
+interface TallyQuestion {
+  id:               string
+  title?:           string
+  type?:            string
+  numberOfResponses?: number
 }
 
-// Fetch a Tally endpoint and return the parsed JSON.
-// Logs the full raw response so we can see the actual shape.
+interface TallySubmissionCounts {
+  all?:       number
+  completed?: number
+  partial?:   number
+}
+
+interface TallySubmissionsResponse {
+  submissions?:                         unknown[]
+  questions?:                           TallyQuestion[]
+  totalNumberOfSubmissionsPerFilter?:   TallySubmissionCounts
+  data?: {
+    submissions?: unknown[]
+    questions?:   TallyQuestion[]
+    totalNumberOfSubmissionsPerFilter?: TallySubmissionCounts
+  }
+}
+
+interface TallySubmissionItem {
+  id:           string
+  submittedAt?: string
+  createdAt?:   string
+  isCompleted?: boolean
+  fields?:      TallyField[]
+  responses?:   Record<string, { value?: unknown }>
+}
+
 async function tallyFetch(url: string, apiKey: string): Promise<unknown> {
   console.log('[tally/sync] GET', url)
 
   const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    // Prevent Next.js from caching API responses
+    headers: { Authorization: `Bearer ${apiKey}` },
     cache: 'no-store',
   })
 
   const text = await res.text()
-  console.log(`[tally/sync] ${url} → HTTP ${res.status}, body (first 500 chars):`, text.slice(0, 500))
+  console.log(`[tally/sync] ${url} → HTTP ${res.status}, body (first 600 chars):`, text.slice(0, 600))
 
   if (!res.ok) {
     throw Object.assign(
@@ -57,15 +77,11 @@ async function tallyFetch(url: string, apiKey: string): Promise<unknown> {
   }
 }
 
-// Robustly extract the forms array from any Tally response shape
 function extractForms(json: unknown): TallyFormItem[] {
   if (!json || typeof json !== 'object') return []
   const j = json as Record<string, unknown>
-
-  // Direct array at root
   if (Array.isArray(j)) return j as TallyFormItem[]
 
-  // Common shapes: { forms: [...] } or { data: { forms: [...] } } or { items: [...] }
   const candidates = [
     j.forms,
     j.items,
@@ -75,38 +91,26 @@ function extractForms(json: unknown): TallyFormItem[] {
   for (const c of candidates) {
     if (Array.isArray(c) && c.length > 0) return c as TallyFormItem[]
   }
-
-  // Return any array-valued key as a last resort
-  for (const val of Object.values(j)) {
-    if (Array.isArray(val)) return val as TallyFormItem[]
-  }
-
+  // Last resort — no array-scan fallback that could grab the wrong array
   return []
 }
 
-// Extract submissions from the Tally API response.
-// The confirmed shape is: { page, limit, hasMore, questions: [...], submissions: [...] }
-// We MUST read .submissions explicitly — the response also contains a `questions`
-// array, so any "return the first array found" fallback would grab the wrong one.
+// Extract submissions explicitly from .submissions key only.
+// The response also contains a `questions` array — any "first array wins"
+// fallback would grab that instead and produce {"undefined": null} answers.
 function extractSubmissions(json: unknown): TallySubmissionItem[] {
   if (!json || typeof json !== 'object') return []
   const j = json as Record<string, unknown>
-
-  // Root-level array (unusual but possible)
   if (Array.isArray(j)) return j as TallySubmissionItem[]
 
-  // Primary: explicit named keys only — no fallback array scan
   const explicit = j.submissions ?? (j.data as Record<string, unknown> | undefined)?.submissions
   if (Array.isArray(explicit)) return explicit as TallySubmissionItem[]
 
-  // Log if we couldn't find submissions so the shape shows up in Railway logs
-  const keys = Object.keys(j)
-  console.warn('[tally/sync] extractSubmissions: no .submissions key found. Top-level keys:', keys)
+  console.warn('[tally/sync] extractSubmissions: no .submissions key. Top-level keys:', Object.keys(j))
   return []
 }
 
 export async function POST() {
-  // -- Auth --
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
@@ -115,10 +119,8 @@ export async function POST() {
 
   console.log('[tally/sync] triggered by user:', user.id)
 
-  // -- Load agency key --
   const apiKey = await getAgencyTallyKey()
   if (!apiKey) {
-    console.error('[tally/sync] no agency Tally key found')
     return NextResponse.json(
       { error: 'Tally API key not configured — save it in Admin → Settings first' },
       { status: 400 },
@@ -127,13 +129,12 @@ export async function POST() {
 
   const admin = createAdminClient()
 
-  // -- Fetch all forms --
+  // Fetch all forms
   let formsJson: unknown
   try {
     formsJson = await tallyFetch('https://api.tally.so/forms', apiKey)
   } catch (err: unknown) {
     const e = err as { status?: number; message?: string }
-    console.error('[tally/sync] forms fetch error:', e?.message)
     if (e?.status === 401) {
       return NextResponse.json(
         { error: 'Tally API key rejected (401) — rotate it in Admin → Settings' },
@@ -150,16 +151,14 @@ export async function POST() {
   console.log('[tally/sync] parsed form count:', remoteForms.length)
 
   if (remoteForms.length === 0) {
-    console.warn('[tally/sync] Tally returned 0 forms. Raw response keys:', Object.keys(formsJson as object))
-    // Return 200 with diagnostic info so the frontend can show it
+    console.warn('[tally/sync] 0 forms. Response keys:', Object.keys(formsJson as object))
     return NextResponse.json({
-      forms: 0,
-      submissions: 0,
+      forms: 0, submissions: 0,
       warning: 'Tally returned 0 forms. Check Railway logs for the raw Tally response.',
     })
   }
 
-  // -- Load existing forms to preserve creator_id + is_qualification_form --
+  // Preserve creator_id + is_qualification_form on upsert
   const { data: existingForms } = await admin
     .from('tally_forms')
     .select('tally_form_id, creator_id, is_qualification_form')
@@ -178,40 +177,71 @@ export async function POST() {
     console.log(`[tally/sync] processing form id=${form.id} name="${form.name ?? '?'}"`)
 
     let submissions: TallySubmissionItem[] = []
-    let submissionCount = 0
+    let questions:   TallyQuestion[]       = []
+    let counts:      TallySubmissionCounts = {}
 
     try {
       const subJson = await tallyFetch(
         `https://api.tally.so/forms/${form.id}/submissions`,
         apiKey,
-      )
+      ) as TallySubmissionsResponse
+
       submissions = extractSubmissions(subJson)
-      submissionCount = submissions.length
-      console.log(`[tally/sync] form ${form.id}: ${submissionCount} submissions`)
+      questions   = subJson.questions ?? subJson.data?.questions ?? []
+      counts      = subJson.totalNumberOfSubmissionsPerFilter
+                    ?? subJson.data?.totalNumberOfSubmissionsPerFilter
+                    ?? {}
+
+      console.log(
+        `[tally/sync] form ${form.id}:`,
+        `submissions=${submissions.length}`,
+        `questions=${questions.length}`,
+        `counts=`, JSON.stringify(counts),
+      )
     } catch (err) {
       console.warn(`[tally/sync] failed to fetch submissions for form ${form.id}:`, (err as Error).message)
     }
 
-    const existing = existingMap.get(form.id)
+    // Log submission shape for debugging
+    if (submissions[0]) {
+      const s0 = submissions[0]
+      if (s0.responses) {
+        const entries = Object.entries(s0.responses)
+        console.log(`[tally/sync] sample responses (first 3):`, JSON.stringify(entries.slice(0, 3)))
+      } else if (s0.fields?.[0]) {
+        console.log(`[tally/sync] sample field (legacy):`, JSON.stringify(s0.fields[0]))
+      } else {
+        console.warn(`[tally/sync] submission has neither .responses nor .fields. Full first submission:`, JSON.stringify(s0))
+      }
+    }
+
+    // Build questionId → title map for responses-based parsing
+    const questionMap = new Map<string, string>(
+      questions.map((q) => [q.id, q.title ?? q.id]),
+    )
+
+    const existing     = existingMap.get(form.id)
     const workspaceName = form.workspaceName ?? form.workspace?.name ?? null
 
-    // creator_id is intentionally omitted: new rows get null (default),
-    // existing rows keep their current assignment untouched.
+    // creator_id intentionally omitted — preserved by ON CONFLICT, not overwritten
     const { error: upsertErr } = await admin.from('tally_forms').upsert(
       {
-        tally_form_id:         form.id,
-        name:                  form.name ?? null,
-        workspace_name:        workspaceName,
-        is_qualification_form: existing?.isQual ?? false,
-        total_submissions:     submissionCount,
-        last_synced_at:        now,
-        active:                true,
+        tally_form_id:          form.id,
+        name:                   form.name ?? null,
+        workspace_name:         workspaceName,
+        is_qualification_form:  existing?.isQual ?? false,
+        total_submissions:      counts.all      ?? submissions.length,
+        completed_submissions:  counts.completed ?? 0,
+        partial_submissions:    counts.partial   ?? 0,
+        questions:              questions.length > 0 ? questions : null,
+        last_synced_at:         now,
+        active:                 true,
       },
       { onConflict: 'tally_form_id' },
     )
 
     if (upsertErr) {
-      console.error(`[tally/sync] upsert error for form ${form.id}:`, upsertErr.message)
+      console.error(`[tally/sync] form upsert error for ${form.id}:`, upsertErr.message)
     }
 
     if (!submissions.length) continue
@@ -223,27 +253,24 @@ export async function POST() {
       .single()
 
     if (!formRow) {
-      console.warn(`[tally/sync] could not find formRow after upsert for tally_form_id=${form.id}`)
+      console.warn(`[tally/sync] missing formRow after upsert for tally_form_id=${form.id}`)
       continue
     }
 
-    // Log the first submission's first field so we can verify the shape in Railway
-    if (submissions[0]) {
-      const sample = submissions[0]
-      const sampleFields = sample.fields ?? []
-      console.log(
-        `[tally/sync] form ${form.id} sample submission id=${sample.id}`,
-        `fields count=${sampleFields.length}`,
-        `first field=`, JSON.stringify(sampleFields[0] ?? null),
-      )
-    }
-
     const rows = submissions.map((s) => {
-      const fields = s.fields ?? []
-      const { name, phone, ig, answers } = mapTallySubmission(fields)
+      let mapped
+      if (s.responses && Object.keys(s.responses).length > 0) {
+        mapped = mapTallyResponses(s.responses, questionMap)
+      } else if (s.fields && s.fields.length > 0) {
+        mapped = mapTallySubmission(s.fields)
+      } else {
+        mapped = { name: null, phone: null, ig: null, answers: {} as Record<string, unknown> }
+      }
+      const { name, phone, ig, answers } = mapped
       return {
         form_id:               formRow.id as string,
         tally_submission_id:   s.id,
+        is_completed:          s.isCompleted ?? null,
         answers,
         respondent_name:       name,
         respondent_phone:      phone,
