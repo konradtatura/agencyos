@@ -113,12 +113,16 @@ export default function AdminTallyPage() {
     setSyncError(null)
     try {
       const res  = await fetch('/api/tally/sync', { method: 'POST' })
-      const data = await res.json() as { forms?: number; submissions?: number; error?: string }
+      const data = await res.json() as { forms?: number; submissions?: number; error?: string; warning?: string }
       if (!res.ok) {
         setSyncError(data.error ?? 'Sync failed')
         return
       }
-      setSyncMsg(`Synced ${data.forms} forms, ${data.submissions} submissions`)
+      if (data.warning) {
+        setSyncError(data.warning)
+      } else {
+        setSyncMsg(`Synced ${data.forms} forms, ${data.submissions} submissions`)
+      }
       await load()
     } catch {
       setSyncError('Network error')

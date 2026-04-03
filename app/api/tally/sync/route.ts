@@ -3,8 +3,6 @@
  *
  * Agency-wide sync: pulls ALL forms and submissions from Tally using the
  * agency-level API key. Creator assignment on existing forms is preserved.
- * Can be called by super_admin or any authenticated creator (used by the
- * Sync Now button — but only pulls data; creator sees only their assignments).
  */
 
 import { NextResponse } from 'next/server'
@@ -17,11 +15,7 @@ interface TallyFormItem {
   id: string
   name?: string
   workspaceName?: string
-}
-
-interface TallyFormsResponse {
-  forms?: TallyFormItem[]
-  data?: { forms?: TallyFormItem[] }
+  workspace?: { name?: string }
 }
 
 interface TallySubmissionItem {
@@ -29,53 +23,148 @@ interface TallySubmissionItem {
   submittedAt?: string
   createdAt?:   string
   fields?:      TallyField[]
+  responses?:   TallyField[]   // alternate key some Tally versions use
 }
 
-interface TallySubmissionsResponse {
-  submissions?: TallySubmissionItem[]
-  data?: { submissions?: TallySubmissionItem[] }
-}
+// Fetch a Tally endpoint and return the parsed JSON.
+// Logs the full raw response so we can see the actual shape.
+async function tallyFetch(url: string, apiKey: string): Promise<unknown> {
+  console.log('[tally/sync] GET', url)
 
-async function tallyFetch<T>(url: string, apiKey: string): Promise<T> {
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    // Prevent Next.js from caching API responses
+    cache: 'no-store',
   })
+
+  const text = await res.text()
+  console.log(`[tally/sync] ${url} → HTTP ${res.status}, body (first 500 chars):`, text.slice(0, 500))
+
   if (!res.ok) {
-    throw Object.assign(new Error(`Tally API error ${res.status}`), { status: res.status })
+    throw Object.assign(
+      new Error(`Tally API error ${res.status}: ${text.slice(0, 200)}`),
+      { status: res.status },
+    )
   }
-  return res.json() as Promise<T>
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error(`Tally returned non-JSON (${res.status}): ${text.slice(0, 200)}`)
+  }
+}
+
+// Robustly extract the forms array from any Tally response shape
+function extractForms(json: unknown): TallyFormItem[] {
+  if (!json || typeof json !== 'object') return []
+  const j = json as Record<string, unknown>
+
+  // Direct array at root
+  if (Array.isArray(j)) return j as TallyFormItem[]
+
+  // Common shapes: { forms: [...] } or { data: { forms: [...] } } or { items: [...] }
+  const candidates = [
+    j.forms,
+    j.items,
+    (j.data as Record<string, unknown> | undefined)?.forms,
+    (j.data as Record<string, unknown> | undefined)?.items,
+  ]
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length > 0) return c as TallyFormItem[]
+  }
+
+  // Return any array-valued key as a last resort
+  for (const val of Object.values(j)) {
+    if (Array.isArray(val)) return val as TallyFormItem[]
+  }
+
+  return []
+}
+
+// Robustly extract the submissions array
+function extractSubmissions(json: unknown): TallySubmissionItem[] {
+  if (!json || typeof json !== 'object') return []
+  const j = json as Record<string, unknown>
+
+  if (Array.isArray(j)) return j as TallySubmissionItem[]
+
+  const candidates = [
+    j.submissions,
+    j.responses,
+    j.items,
+    (j.data as Record<string, unknown> | undefined)?.submissions,
+    (j.data as Record<string, unknown> | undefined)?.responses,
+    (j.data as Record<string, unknown> | undefined)?.items,
+  ]
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c as TallySubmissionItem[]
+  }
+
+  for (const val of Object.values(j)) {
+    if (Array.isArray(val)) return val as TallySubmissionItem[]
+  }
+
+  return []
 }
 
 export async function POST() {
-  // -- Auth: any authenticated user may trigger a sync --
+  // -- Auth --
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  console.log('[tally/sync] triggered by user:', user.id)
+
   // -- Load agency key --
   const apiKey = await getAgencyTallyKey()
   if (!apiKey) {
-    return NextResponse.json({ error: 'Tally API key not configured — contact your admin' }, { status: 400 })
+    console.error('[tally/sync] no agency Tally key found')
+    return NextResponse.json(
+      { error: 'Tally API key not configured — save it in Admin → Settings first' },
+      { status: 400 },
+    )
   }
 
   const admin = createAdminClient()
 
   // -- Fetch all forms --
-  let remoteForms: TallyFormItem[]
+  let formsJson: unknown
   try {
-    const json = await tallyFetch<TallyFormsResponse>('https://api.tally.so/forms', apiKey)
-    remoteForms = json.forms ?? json.data?.forms ?? []
+    formsJson = await tallyFetch('https://api.tally.so/forms', apiKey)
   } catch (err: unknown) {
-    const e = err as { status?: number }
+    const e = err as { status?: number; message?: string }
+    console.error('[tally/sync] forms fetch error:', e?.message)
     if (e?.status === 401) {
-      return NextResponse.json({ error: 'Tally API key expired — contact your admin' }, { status: 401 })
+      return NextResponse.json(
+        { error: 'Tally API key rejected (401) — rotate it in Admin → Settings' },
+        { status: 401 },
+      )
     }
-    return NextResponse.json({ error: 'Failed to fetch forms from Tally' }, { status: 502 })
+    return NextResponse.json(
+      { error: `Failed to fetch forms from Tally: ${e?.message ?? 'unknown error'}` },
+      { status: 502 },
+    )
   }
 
-  // Load existing forms to preserve creator_id + is_qualification_form on upsert
+  const remoteForms = extractForms(formsJson)
+  console.log('[tally/sync] parsed form count:', remoteForms.length)
+
+  if (remoteForms.length === 0) {
+    console.warn('[tally/sync] Tally returned 0 forms. Raw response keys:', Object.keys(formsJson as object))
+    // Return 200 with diagnostic info so the frontend can show it
+    return NextResponse.json({
+      forms: 0,
+      submissions: 0,
+      warning: 'Tally returned 0 forms. Check Railway logs for the raw Tally response.',
+    })
+  }
+
+  // -- Load existing forms to preserve creator_id + is_qualification_form --
   const { data: existingForms } = await admin
     .from('tally_forms')
     .select('tally_form_id, creator_id, is_qualification_form')
@@ -91,74 +180,83 @@ export async function POST() {
   let totalSubmissions = 0
 
   for (const form of remoteForms) {
+    console.log(`[tally/sync] processing form id=${form.id} name="${form.name ?? '?'}"`)
+
     let submissions: TallySubmissionItem[] = []
     let submissionCount = 0
 
     try {
-      const json = await tallyFetch<TallySubmissionsResponse>(
+      const subJson = await tallyFetch(
         `https://api.tally.so/forms/${form.id}/submissions`,
         apiKey,
       )
-      submissions = json.submissions ?? json.data?.submissions ?? []
+      submissions = extractSubmissions(subJson)
       submissionCount = submissions.length
-    } catch {
-      console.warn(`[tally/sync] failed to fetch submissions for form ${form.id}`)
+      console.log(`[tally/sync] form ${form.id}: ${submissionCount} submissions`)
+    } catch (err) {
+      console.warn(`[tally/sync] failed to fetch submissions for form ${form.id}:`, (err as Error).message)
     }
 
     const existing = existingMap.get(form.id)
+    const workspaceName = form.workspaceName ?? form.workspace?.name ?? null
 
-    // Upsert form — preserve creator_id and is_qualification_form
-    await admin.from('tally_forms').upsert(
+    const { error: upsertErr } = await admin.from('tally_forms').upsert(
       {
-        // creator_id is intentionally omitted from the upsert value so that
-        // on conflict the existing value is NOT overwritten; we set it only
-        // for new rows (where existing is undefined).
-        creator_id:           existing?.creatorId ?? null,
-        tally_form_id:        form.id,
-        name:                 form.name ?? null,
-        workspace_name:       form.workspaceName ?? null,
+        creator_id:            existing?.creatorId ?? null,
+        tally_form_id:         form.id,
+        name:                  form.name ?? null,
+        workspace_name:        workspaceName,
         is_qualification_form: existing?.isQual ?? false,
-        total_submissions:    submissionCount,
-        last_synced_at:       now,
-        active:               true,
+        total_submissions:     submissionCount,
+        last_synced_at:        now,
+        active:                true,
       },
       { onConflict: 'tally_form_id' },
     )
 
+    if (upsertErr) {
+      console.error(`[tally/sync] upsert error for form ${form.id}:`, upsertErr.message)
+    }
+
     if (!submissions.length) continue
 
-    // Resolve the internal form UUID
     const { data: formRow } = await admin
       .from('tally_forms')
       .select('id, creator_id')
       .eq('tally_form_id', form.id)
       .single()
 
-    if (!formRow) continue
+    if (!formRow) {
+      console.warn(`[tally/sync] could not find formRow after upsert for tally_form_id=${form.id}`)
+      continue
+    }
 
-    const formCreatorId = formRow.creator_id as string | null
-
-    // Upsert submissions
     const rows = submissions.map((s) => {
-      const { name, phone, ig, answers } = mapTallySubmission(s.fields ?? [])
+      const fields = s.fields ?? s.responses ?? []
+      const { name, phone, ig, answers } = mapTallySubmission(fields)
       return {
-        creator_id:           formCreatorId,
-        form_id:              formRow.id as string,
-        tally_submission_id:  s.id,
+        creator_id:            formRow.creator_id as string | null,
+        form_id:               formRow.id as string,
+        tally_submission_id:   s.id,
         answers,
-        respondent_name:      name,
-        respondent_phone:     phone,
-        respondent_ig_handle: ig,
-        submitted_at:         s.submittedAt ?? s.createdAt ?? null,
+        respondent_name:       name,
+        respondent_phone:      phone,
+        respondent_ig_handle:  ig,
+        submitted_at:          s.submittedAt ?? s.createdAt ?? null,
       }
     })
 
-    await admin
+    const { error: subUpsertErr } = await admin
       .from('tally_submissions')
       .upsert(rows, { onConflict: 'tally_submission_id' })
+
+    if (subUpsertErr) {
+      console.error(`[tally/sync] submissions upsert error for form ${form.id}:`, subUpsertErr.message)
+    }
 
     totalSubmissions += submissions.length
   }
 
+  console.log(`[tally/sync] done — ${remoteForms.length} forms, ${totalSubmissions} submissions`)
   return NextResponse.json({ forms: remoteForms.length, submissions: totalSubmissions })
 }
