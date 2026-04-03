@@ -19,17 +19,29 @@ export async function GET() {
 
   const admin = createAdminClient()
 
-  const [{ data: forms }, { data: creators }] = await Promise.all([
+  const [{ data: forms }, { data: profileRows }] = await Promise.all([
     admin
       .from('tally_forms')
       .select('id, tally_form_id, name, workspace_name, total_submissions, last_synced_at, is_qualification_form, creator_id, active')
       .order('workspace_name', { ascending: true })
       .order('name', { ascending: true }),
+    // Join users so we can fall back to email when profile name is null.
+    // This catches every creator regardless of integration or onboarding state.
     admin
       .from('creator_profiles')
-      .select('id, name')
-      .order('name', { ascending: true }),
+      .select('id, name, users!user_id ( email )')
+      .order('name', { ascending: true, nullsFirst: false }),
   ])
 
-  return NextResponse.json({ forms: forms ?? [], creators: creators ?? [] })
+  type ProfileRow = { id: string; name: string | null; users: { email: string } | null }
+
+  const creators = (profileRows ?? []).map((p) => {
+    const row = p as unknown as ProfileRow
+    return {
+      id:   row.id,
+      name: row.name ?? row.users?.email ?? row.id,
+    }
+  })
+
+  return NextResponse.json({ forms: forms ?? [], creators })
 }
