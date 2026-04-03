@@ -576,17 +576,21 @@ export default function FormSubmissionsPage() {
     setSubmissions((prev) => prev.map((s) => s.id === subId ? { ...s, lead_id: leadId } : s))
   }
 
-  // Prefer live Tally API data; fall back to DB snapshot when insights unavailable
-  const total          = insights?.counts.all       ?? form?.total_submissions     ?? submissions.length
-  const completed      = insights?.counts.completed ?? form?.completed_submissions ?? submissions.filter((s) => s.is_completed).length
-  const partial        = insights?.counts.partial   ?? form?.partial_submissions   ?? submissions.filter((s) => s.is_completed === false).length
-  const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0
-
   // Live questions for the funnel; fall back to DB snapshot
   const questions = useMemo(
     () => (insights?.questions ?? form?.questions ?? []).filter((q) => q.title),
     [insights, form],
   )
+
+  // Prefer live Tally API data; fall back to DB snapshot when insights unavailable
+  const total          = insights?.counts.all       ?? form?.total_submissions     ?? submissions.length
+  const completed      = insights?.counts.completed ?? form?.completed_submissions ?? submissions.filter((s) => s.is_completed).length
+  const partial        = insights?.counts.partial   ?? form?.partial_submissions   ?? submissions.filter((s) => s.is_completed === false).length
+
+  // "Started answering" = first question's numberOfResponses — matches Tally's drop-offs view.
+  // Falls back to total (all submissions) if questions not yet loaded.
+  const started        = questions[0]?.numberOfResponses ?? total
+  const completionRate = started > 0 ? Math.round((completed / started) * 100) : 0
 
   const visibleSubs = useMemo(() => {
     let subs = submissions
@@ -644,7 +648,7 @@ export default function FormSubmissionsPage() {
 
       {/* ── Stats (3 cards) ── */}
       <div className="mb-6 grid grid-cols-3 gap-4">
-        <StatCard label="Started answering" value={total}                icon={MousePointer} accent="#6b7280" />
+        <StatCard label="Started answering" value={started}              icon={MousePointer} accent="#6b7280" />
         <StatCard label="Completions"        value={completed}            icon={CheckCircle}  accent="#10b981" />
         <StatCard label="Completion rate"    value={`${completionRate}%`} icon={TrendingUp}   accent="#2563eb" />
       </div>
