@@ -24,6 +24,7 @@ import {
   Phone,
   Zap,
   LogOut,
+  ListChecks,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -69,7 +70,7 @@ const ADMIN_NAV: NavSection[] = [
   },
 ]
 
-function creatorNav(dmUnreadCount: number): NavSection[] {
+function creatorNav(dmUnreadCount: number, tallyNewCount: number = 0): NavSection[] {
   return [
     {
       title: 'Overview',
@@ -93,6 +94,12 @@ function creatorNav(dmUnreadCount: number): NavSection[] {
         { href: '/dashboard/crm',     icon: LayoutList,    label: 'CRM'                            },
         { href: '/dashboard/metrics', icon: TrendingUp,    label: 'Metrics'                        },
         { href: '/dashboard/revenue', icon: DollarSign,    label: 'Revenue'                        },
+      ],
+    },
+    {
+      title: 'Forms',
+      items: [
+        { href: '/dashboard/tally', icon: ListChecks, label: 'Tally', badge: tallyNewCount },
       ],
     },
     {
@@ -193,6 +200,8 @@ interface SidebarProps {
   creatorNiche?: string
   /** Live unread count for DM Inbox badge (creator variant only) */
   dmUnreadCount?: number
+  /** Tally submissions in last 24h badge (creator variant only) */
+  tallyNewCount?: number
 }
 
 export default function Sidebar({
@@ -201,6 +210,7 @@ export default function Sidebar({
   creatorName,
   creatorNiche,
   dmUnreadCount = 0,
+  tallyNewCount = 0,
 }: SidebarProps) {
   const pathname = usePathname()
   const router   = useRouter()
@@ -209,7 +219,7 @@ export default function Sidebar({
   const navSections: NavSection[] = (() => {
     switch (variant) {
       case 'admin':   return ADMIN_NAV
-      case 'creator': return creatorNav(dmUnreadCount)
+      case 'creator': return creatorNav(dmUnreadCount, tallyNewCount)
       case 'setter':  return SETTER_NAV
       case 'closer':  return CLOSER_NAV
     }
