@@ -33,6 +33,7 @@ interface TallySubmission {
 
 interface FormDetail {
   id:                    string
+  tally_form_id:         string
   name:                  string | null
   workspace_name:        string | null
   total_submissions:     number
@@ -40,6 +41,11 @@ interface FormDetail {
   partial_submissions:   number
   is_qualification_form: boolean
   questions:             TallyQuestion[] | null
+}
+
+interface TallyInsights {
+  questions: TallyQuestion[]
+  counts:    { all: number; completed: number; partial: number }
 }
 
 type ViewMode   = 'cards' | 'table'
@@ -536,6 +542,7 @@ export default function FormSubmissionsPage() {
 
   const [form, setForm]               = useState<FormDetail | null>(null)
   const [submissions, setSubmissions] = useState<TallySubmission[]>([])
+  const [insights, setInsights]       = useState<TallyInsights | null>(null)
   const [loading, setLoading]         = useState(true)
   const [viewMode, setViewMode]       = useState<ViewMode>('cards')
   const [filter, setFilter]           = useState<FilterMode>('all')
@@ -545,11 +552,19 @@ export default function FormSubmissionsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res  = await fetch(`/api/tally/forms/${formId}/submissions`)
+      const res = await fetch(`/api/tally/forms/${formId}/submissions`)
       if (!res.ok) return
       const data = await res.json() as { form: FormDetail; submissions: TallySubmission[] }
       setForm(data.form)
       setSubmissions(data.submissions ?? [])
+
+      // Fetch live funnel data from Tally API (5-min cached)
+      if (data.form?.tally_form_id) {
+        const insRes = await fetch(`/api/tally/form/${data.form.tally_form_id}/insights`)
+        if (insRes.ok) {
+          setInsights(await insRes.json() as TallyInsights)
+        }
+      }
     } finally {
       setLoading(false)
     }
@@ -561,14 +576,16 @@ export default function FormSubmissionsPage() {
     setSubmissions((prev) => prev.map((s) => s.id === subId ? { ...s, lead_id: leadId } : s))
   }
 
-  const total          = form?.total_submissions     ?? submissions.length
-  const completed      = form?.completed_submissions ?? submissions.filter((s) => s.is_completed).length
-  const partial        = form?.partial_submissions   ?? submissions.filter((s) => s.is_completed === false).length
+  // Prefer live Tally API data; fall back to DB snapshot when insights unavailable
+  const total          = insights?.counts.all       ?? form?.total_submissions     ?? submissions.length
+  const completed      = insights?.counts.completed ?? form?.completed_submissions ?? submissions.filter((s) => s.is_completed).length
+  const partial        = insights?.counts.partial   ?? form?.partial_submissions   ?? submissions.filter((s) => s.is_completed === false).length
   const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0
 
+  // Live questions for the funnel; fall back to DB snapshot
   const questions = useMemo(
-    () => (form?.questions ?? []).filter((q) => q.title),
-    [form],
+    () => (insights?.questions ?? form?.questions ?? []).filter((q) => q.title),
+    [insights, form],
   )
 
   const visibleSubs = useMemo(() => {

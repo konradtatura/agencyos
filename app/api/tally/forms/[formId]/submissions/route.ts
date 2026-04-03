@@ -39,7 +39,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   // scoped because the creator's dashboard list only surfaces their own forms.
   const { data: form } = await admin
     .from('tally_forms')
-    .select('id, name, workspace_name, total_submissions, completed_submissions, partial_submissions, is_qualification_form, questions, creator_id')
+    .select('id, tally_form_id, name, workspace_name, total_submissions, completed_submissions, partial_submissions, is_qualification_form, questions, creator_id')
     .eq('id', params.formId)
     .maybeSingle()
 
