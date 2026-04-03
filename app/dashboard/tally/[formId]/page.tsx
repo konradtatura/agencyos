@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, ExternalLink, UserPlus,
-  FileText, CheckCircle, AlertCircle, TrendingUp,
-  ChevronDown, ChevronUp, Search, Table2, LayoutList, Download,
+  ArrowLeft, ArrowDown, Eye, MousePointer, ExternalLink, UserPlus,
+  CheckCircle, TrendingUp, ChevronDown, ChevronUp,
+  Search, Table2, LayoutList, Download,
 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -47,14 +47,6 @@ type FilterMode = 'all' | 'completed' | 'partial'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
-}
-
 function fmtDateShort(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-GB', {
@@ -65,8 +57,7 @@ function fmtDateShort(iso: string | null): string {
 
 function strAnswer(val: unknown): string {
   if (val === null || val === undefined) return ''
-  const s = String(val).trim()
-  return s
+  return String(val).trim()
 }
 
 function truncate(str: string, len: number): string {
@@ -76,15 +67,14 @@ function truncate(str: string, len: number): string {
 // ── Stat card ────────────────────────────────────────────────────────────────
 
 function StatCard({
-  label, value, sub, icon: Icon, accent,
+  label, value, icon: Icon, accent,
 }: {
   label:   string
   value:   string | number
-  sub?:    string
   icon:    React.ElementType
   accent?: string
 }) {
-  const color = accent ?? '#2563eb'
+  const color = accent ?? '#6b7280'
   return (
     <div
       className="flex flex-col gap-2 rounded-xl p-4"
@@ -97,80 +87,246 @@ function StatCard({
         </div>
       </div>
       <span className="font-mono text-[26px] font-semibold leading-none text-[#f9fafb]">{value}</span>
-      {sub && <span className="text-[11.5px] text-[#6b7280]">{sub}</span>}
     </div>
   )
 }
 
-// ── Drop-off funnel ───────────────────────────────────────────────────────────
+// ── Drop-off funnel (Tally-style) ─────────────────────────────────────────────
 
-function DropoffFunnel({ questions }: { questions: TallyQuestion[] }) {
+function DropoffFunnel({
+  questions,
+  total,
+  completed,
+}: {
+  questions: TallyQuestion[]
+  total:     number
+  completed: number
+}) {
   if (!questions.length) {
     return (
-      <p className="py-6 text-center text-[13px] text-[#6b7280]">
-        No question data available — run a sync to populate funnel data
-      </p>
+      <div className="py-8 text-center">
+        <p className="text-[13px] text-[#6b7280]">
+          No question data — run a sync to populate funnel analytics
+        </p>
+      </div>
     )
   }
 
-  const baseline = questions[0]?.numberOfResponses ?? 0
+  const q1Responses     = questions[0]?.numberOfResponses ?? 0
+  const dropBeforeStart = Math.max(0, total - q1Responses)
+  const completionRate  = total > 0 ? Math.round((completed / total) * 100) : 0
 
   return (
-    <div className="space-y-3">
-      {questions.map((q, i) => {
-        const responses = q.numberOfResponses ?? 0
-        const pct       = baseline > 0 ? Math.round((responses / baseline) * 100) : 0
-        const prev      = questions[i - 1]?.numberOfResponses ?? responses
-        const dropoff   = prev - responses
-        const dropPct   = prev > 0 ? Math.round((dropoff / prev) * 100) : 0
-        const isEmpty   = responses === 0
+    <div className="relative">
+      {/* Vertical guide line */}
+      <div
+        className="absolute left-[19px] top-5 w-px"
+        style={{ bottom: '20px', backgroundColor: 'rgba(255,255,255,0.06)' }}
+      />
 
-        return (
-          <div key={q.id} className="group">
-            <div className="mb-1.5 flex items-center justify-between gap-3">
-              <span
-                className="text-[12.5px] font-medium leading-snug"
-                style={{ color: isEmpty ? '#4b5563' : '#d1d5db' }}
-              >
-                {i + 1}. {q.title ?? q.id}
-              </span>
-              <div className="flex shrink-0 items-center gap-2">
-                {i > 0 && dropoff > 0 && (
-                  <span className="text-[11.5px] font-medium" style={{ color: '#ef4444' }}>
-                    ↓ {dropoff} drop-off{dropoff !== 1 ? 's' : ''} ({dropPct}%)
+      <div>
+        {/* ── Node: Form views ── */}
+        <div className="relative flex items-start gap-4 pb-1">
+          <div
+            className="relative z-10 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            style={{ backgroundColor: 'rgba(107,114,128,0.1)', border: '1px solid rgba(107,114,128,0.2)' }}
+          >
+            <Eye className="h-4 w-4 text-[#6b7280]" />
+          </div>
+          <div className="pt-1">
+            <span className="font-mono text-[22px] font-bold leading-none text-[#f9fafb]">{total}</span>
+            <p className="mt-0.5 text-[12.5px] font-medium text-[#9ca3af]">Form views</p>
+            <p className="mt-0.5 text-[11px] text-[#4b5563]">Not available — tracked by Tally only</p>
+          </div>
+        </div>
+
+        {/* ── Connector: drop-offs before starting ── */}
+        <div className="relative flex items-center gap-3 py-2 pl-[9px]">
+          <div
+            className="relative z-10 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
+            style={{
+              backgroundColor: dropBeforeStart > 0 ? 'rgba(239,68,68,0.1)' : 'rgba(75,85,99,0.1)',
+              border: `1px solid ${dropBeforeStart > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(75,85,99,0.15)'}`,
+            }}
+          >
+            <ArrowDown
+              className="h-2.5 w-2.5"
+              style={{ color: dropBeforeStart > 0 ? '#ef4444' : '#4b5563' }}
+            />
+          </div>
+          <span
+            className="text-[12px] font-medium"
+            style={{ color: dropBeforeStart > 0 ? '#ef4444' : '#4b5563' }}
+          >
+            {dropBeforeStart > 0
+              ? `${dropBeforeStart} drop-off${dropBeforeStart !== 1 ? 's' : ''} before starting`
+              : 'No drop-offs before starting'}
+          </span>
+        </div>
+
+        {/* ── Node: Started answering ── */}
+        <div className="relative flex items-start gap-4 pb-5">
+          <div
+            className="relative z-10 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            style={{ backgroundColor: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}
+          >
+            <MousePointer className="h-4 w-4 text-[#2563eb]" />
+          </div>
+          <div className="pt-1">
+            <span className="font-mono text-[22px] font-bold leading-none text-[#2563eb]">{q1Responses}</span>
+            <p className="mt-0.5 text-[12.5px] font-medium text-[#9ca3af]">Respondents started answering</p>
+          </div>
+        </div>
+
+        {/* ── Question rows ── */}
+        {questions.map((q, i) => {
+          const responses  = q.numberOfResponses ?? 0
+          const pct        = q1Responses > 0 ? Math.round((responses / q1Responses) * 100) : 0
+          const prevR      = i > 0 ? (questions[i - 1]?.numberOfResponses ?? q1Responses) : q1Responses
+          const dropoff    = Math.max(0, prevR - responses)
+          const dropPct    = prevR > 0 ? Math.round((dropoff / prevR) * 100) : 0
+          const hasDropoff = i > 0 && dropoff > 0
+
+          return (
+            <div key={q.id} className="mb-3 ml-14">
+              {/* Connector before question (skip first) */}
+              {i > 0 && (
+                <div className="-ml-9 mb-2 flex items-center gap-3 pl-[9px]">
+                  <div
+                    className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
+                    style={{
+                      backgroundColor: hasDropoff ? 'rgba(239,68,68,0.1)' : 'rgba(75,85,99,0.1)',
+                      border: `1px solid ${hasDropoff ? 'rgba(239,68,68,0.2)' : 'rgba(75,85,99,0.15)'}`,
+                    }}
+                  >
+                    <ArrowDown
+                      className="h-2.5 w-2.5"
+                      style={{ color: hasDropoff ? '#ef4444' : '#4b5563' }}
+                    />
+                  </div>
+                  <span
+                    className="text-[11.5px] font-medium"
+                    style={{ color: hasDropoff ? '#ef4444' : '#4b5563' }}
+                  >
+                    {hasDropoff
+                      ? `${dropoff} drop-off${dropoff !== 1 ? 's' : ''} (${dropPct}%)`
+                      : 'No drop-offs'}
                   </span>
-                )}
-                {i > 0 && dropoff === 0 && (
-                  <span className="text-[11.5px]" style={{ color: '#4b5563' }}>No drop-offs</span>
-                )}
-                <span
-                  className="min-w-[3rem] text-right font-mono text-[12.5px] font-semibold"
-                  style={{ color: isEmpty ? '#4b5563' : '#f9fafb' }}
-                >
-                  {responses}
-                </span>
-              </div>
-            </div>
-            <div
-              className="h-6 overflow-hidden rounded-md"
-              style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}
-            >
+                </div>
+              )}
+
+              {/* Question card */}
               <div
-                className="flex h-full items-center justify-end pr-2 transition-all duration-500"
+                className="overflow-hidden rounded-xl px-4 pt-3 pb-3"
                 style={{
-                  width:           `${Math.max(pct, pct > 0 ? 1 : 0)}%`,
-                  backgroundColor: isEmpty ? 'rgba(75,85,99,0.3)' : 'rgba(37,99,235,0.5)',
-                  minWidth:        pct > 0 ? '2px' : '0',
+                  backgroundColor: 'rgba(255,255,255,0.025)',
+                  border: '1px solid rgba(255,255,255,0.07)',
                 }}
               >
-                {pct > 10 && (
-                  <span className="text-[10.5px] font-semibold text-white/80">{pct}%</span>
-                )}
+                {/* Question title */}
+                <p
+                  className="mb-3 text-[12.5px] font-medium leading-snug text-[#d1d5db]"
+                  title={q.title}
+                >
+                  {truncate(q.title ?? q.id, 80)}
+                </p>
+
+                {/* Progress bar */}
+                <div
+                  className="mb-2.5 h-[7px] overflow-hidden rounded-full"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width:           `${pct}%`,
+                      backgroundColor: '#2563eb',
+                      minWidth:        pct > 0 ? '4px' : '0',
+                    }}
+                  />
+                </div>
+
+                {/* Stats row */}
+                <div className="flex items-center justify-between gap-4">
+                  <span className="whitespace-nowrap text-[12px] text-[#6b7280]">
+                    <span className="font-mono font-semibold text-[#9ca3af]">{responses}</span>
+                    {' '}views
+                  </span>
+                  <span className="whitespace-nowrap text-[12px]">
+                    <span className="font-mono font-semibold text-[#2563eb]">{responses}</span>
+                    <span className="ml-1 text-[#6b7280]">Answers</span>
+                  </span>
+                  <span
+                    className="whitespace-nowrap text-[12px] font-medium"
+                    style={{ color: hasDropoff ? '#ef4444' : '#4b5563' }}
+                  >
+                    {i === 0
+                      ? '— No drop-offs'
+                      : hasDropoff
+                        ? `↓ ${dropPct}% · ${dropoff} drop-off${dropoff !== 1 ? 's' : ''}`
+                        : '— No drop-offs'}
+                  </span>
+                </div>
               </div>
             </div>
+          )
+        })}
+
+        {/* ── Connector before Completed ── */}
+        {(() => {
+          const lastR    = questions[questions.length - 1]?.numberOfResponses ?? 0
+          const dropFinal = Math.max(0, lastR - completed)
+          const hasDrop  = dropFinal > 0
+          const dropPct  = lastR > 0 ? Math.round((dropFinal / lastR) * 100) : 0
+          return (
+            <div className="flex items-center gap-3 py-2 pl-[9px]">
+              <div
+                className="relative z-10 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
+                style={{
+                  backgroundColor: hasDrop ? 'rgba(239,68,68,0.1)' : 'rgba(75,85,99,0.1)',
+                  border: `1px solid ${hasDrop ? 'rgba(239,68,68,0.2)' : 'rgba(75,85,99,0.15)'}`,
+                }}
+              >
+                <ArrowDown className="h-2.5 w-2.5" style={{ color: hasDrop ? '#ef4444' : '#4b5563' }} />
+              </div>
+              <span
+                className="text-[12px] font-medium"
+                style={{ color: hasDrop ? '#ef4444' : '#4b5563' }}
+              >
+                {hasDrop ? `${dropFinal} drop-off${dropFinal !== 1 ? 's' : ''} (${dropPct}%)` : 'No drop-offs'}
+              </span>
+            </div>
+          )
+        })()}
+
+        {/* ── Node: Completed ── */}
+        <div className="relative flex items-start gap-4 pb-3 pt-1">
+          <div
+            className="relative z-10 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            style={{ backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}
+          >
+            <CheckCircle className="h-4 w-4 text-[#10b981]" />
           </div>
-        )
-      })}
+          <div className="pt-1">
+            <span className="font-mono text-[22px] font-bold leading-none text-[#10b981]">{completed}</span>
+            <p className="mt-0.5 text-[12.5px] font-medium text-[#9ca3af]">Respondents completed the form</p>
+          </div>
+        </div>
+
+        {/* ── Node: Completion rate ── */}
+        <div className="relative flex items-start gap-4">
+          <div
+            className="relative z-10 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+            style={{ backgroundColor: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}
+          >
+            <TrendingUp className="h-4 w-4 text-[#2563eb]" />
+          </div>
+          <div className="pt-1">
+            <span className="font-mono text-[22px] font-bold leading-none text-[#2563eb]">{completionRate}%</span>
+            <p className="mt-0.5 text-[12.5px] font-medium text-[#9ca3af]">Completion rate</p>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -206,34 +362,30 @@ function StatusBadge({ isCompleted }: { isCompleted: boolean | null }) {
 function SubmissionCard({
   sub,
   questions,
+  forceExpanded,
   onLeadCreated,
 }: {
-  sub:          TallySubmission
-  questions:    TallyQuestion[]
+  sub:           TallySubmission
+  questions:     TallyQuestion[]
+  forceExpanded?: boolean
   onLeadCreated: (subId: string, leadId: string) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const [creating, setCreating] = useState(false)
+  const [localExpanded, setLocalExpanded] = useState(false)
+  const [creating, setCreating]           = useState(false)
+
+  const expanded = forceExpanded ?? localExpanded
 
   const answers = sub.answers ?? {}
 
-  // Build ordered Q&A using questions array order, fall back to raw answers order
   const orderedQA: { title: string; answer: string }[] = useMemo(() => {
     if (questions.length > 0) {
       return questions
         .filter((q) => q.title)
-        .map((q) => ({
-          title:  q.title!,
-          answer: strAnswer(answers[q.title!]),
-        }))
+        .map((q) => ({ title: q.title!, answer: strAnswer(answers[q.title!]) }))
     }
-    return Object.entries(answers).map(([title, val]) => ({
-      title,
-      answer: strAnswer(val),
-    }))
+    return Object.entries(answers).map(([title, val]) => ({ title, answer: strAnswer(val) }))
   }, [questions, answers])
 
-  // First 2 non-empty answers for collapsed preview
   const preview = orderedQA.filter((qa) => qa.answer).slice(0, 2)
 
   async function createLead() {
@@ -252,27 +404,22 @@ function SubmissionCard({
       className="overflow-hidden rounded-xl transition-all"
       style={{ backgroundColor: '#0d1117', border: '1px solid rgba(255,255,255,0.06)' }}
     >
-      {/* Header row */}
       <button
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setLocalExpanded((v) => !v)}
         className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
       >
-        {/* Date */}
         <span className="w-36 shrink-0 font-mono text-[12px] text-[#6b7280]">
           {fmtDateShort(sub.submitted_at)}
         </span>
-
-        {/* Status */}
         <span className="w-24 shrink-0">
           <StatusBadge isCompleted={sub.is_completed} />
         </span>
-
-        {/* Phone (if captured) */}
+        {sub.respondent_name && (
+          <span className="shrink-0 text-[12.5px] text-[#f9fafb]">{sub.respondent_name}</span>
+        )}
         {sub.respondent_phone && (
           <span className="shrink-0 text-[12.5px] text-[#9ca3af]">{sub.respondent_phone}</span>
         )}
-
-        {/* Collapsed preview */}
         {!expanded && preview.length > 0 && (
           <span className="min-w-0 flex-1 truncate text-[12.5px] text-[#6b7280]">
             {preview.map((qa) => truncate(qa.answer, 40)).join('  ·  ')}
@@ -281,10 +428,7 @@ function SubmissionCard({
         {!expanded && preview.length === 0 && (
           <span className="flex-1 text-[12.5px] text-[#4b5563]">No answers recorded</span>
         )}
-
         {expanded && <span className="flex-1" />}
-
-        {/* CRM badge (inline) */}
         {sub.lead_id && (
           <Link
             href={`/dashboard/crm/${sub.lead_id}`}
@@ -295,25 +439,22 @@ function SubmissionCard({
             Lead <ExternalLink className="h-2.5 w-2.5" />
           </Link>
         )}
-
-        {/* Chevron */}
         <span className="ml-1 shrink-0 text-[#4b5563]">
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </span>
       </button>
 
-      {/* Expanded answers */}
       {expanded && (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
           <div className="px-5 py-4">
             {orderedQA.length === 0 ? (
               <p className="text-[13px] text-[#4b5563]">No answers recorded</p>
             ) : (
-              <div className="space-y-0">
+              <div>
                 {orderedQA.map((qa, i) => (
                   <div key={qa.title}>
                     <div className="py-3">
-                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-[#4b5563]">
+                      <p className="mb-1 text-[10.5px] font-semibold uppercase tracking-widest text-[#4b5563]">
                         {qa.title}
                       </p>
                       <p className="text-[13.5px] leading-relaxed text-[#f9fafb]">
@@ -327,10 +468,11 @@ function SubmissionCard({
                 ))}
               </div>
             )}
-
-            {/* Footer actions */}
             {!sub.lead_id && (
-              <div className="mt-4 flex justify-end" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px' }}>
+              <div
+                className="mt-4 flex justify-end"
+                style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px' }}
+              >
                 <button
                   onClick={createLead}
                   disabled={creating}
@@ -361,7 +503,6 @@ function TableView({
   questions:   TallyQuestion[]
 }) {
   const cols = questions.filter((q) => q.title)
-
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-separate border-spacing-0 text-[12.5px]">
@@ -402,11 +543,7 @@ function TableView({
                 {cols.map((q) => {
                   const raw = strAnswer(answers[q.title!])
                   return (
-                    <td
-                      key={q.id}
-                      className="max-w-[200px] px-3 py-2.5"
-                      title={raw || undefined}
-                    >
+                    <td key={q.id} className="max-w-[200px] px-3 py-2.5" title={raw || undefined}>
                       <span className="block truncate text-[#d1d5db]">
                         {raw || <span className="text-[#4b5563]">—</span>}
                       </span>
@@ -425,27 +562,20 @@ function TableView({
 // ── CSV export ────────────────────────────────────────────────────────────────
 
 function exportCSV(submissions: TallySubmission[], questions: TallyQuestion[], formName: string) {
-  const cols = questions.filter((q) => q.title)
+  const cols    = questions.filter((q) => q.title)
   const headers = ['Submission Date', 'Completed', ...cols.map((q) => q.title!)]
-
-  const rows = submissions.map((sub) => {
+  const rows    = submissions.map((sub) => {
     const answers = sub.answers ?? {}
     const status  = sub.is_completed === true ? 'Yes' : sub.is_completed === false ? 'No' : ''
-    return [
-      sub.submitted_at ?? '',
-      status,
-      ...cols.map((q) => strAnswer(answers[q.title!])),
-    ]
+    return [sub.submitted_at ?? '', status, ...cols.map((q) => strAnswer(answers[q.title!]))]
   })
-
   const escape = (v: string) => `"${v.replace(/"/g, '""')}"`
-  const csv = [headers, ...rows].map((row) => row.map(escape).join(',')).join('\n')
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href     = url
-  a.download = `${formName ?? 'tally-export'}.csv`
+  const csv    = [headers, ...rows].map((row) => row.map(escape).join(',')).join('\n')
+  const blob   = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url    = URL.createObjectURL(blob)
+  const a      = document.createElement('a')
+  a.href       = url
+  a.download   = `${formName ?? 'tally-export'}.csv`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -461,6 +591,7 @@ export default function FormSubmissionsPage() {
   const [viewMode, setViewMode]       = useState<ViewMode>('cards')
   const [filter, setFilter]           = useState<FilterMode>('all')
   const [search, setSearch]           = useState('')
+  const [allExpanded, setAllExpanded] = useState<boolean | undefined>(undefined)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -493,20 +624,15 @@ export default function FormSubmissionsPage() {
 
   const visibleSubs = useMemo(() => {
     let subs = submissions
-
     if (filter === 'completed') subs = subs.filter((s) => s.is_completed === true)
     if (filter === 'partial')   subs = subs.filter((s) => s.is_completed === false)
-
     if (search.trim()) {
       const q = search.toLowerCase()
       subs = subs.filter((s) => {
         if (!s.answers) return false
-        return Object.values(s.answers).some(
-          (v) => v != null && String(v).toLowerCase().includes(q),
-        )
+        return Object.values(s.answers).some((v) => v != null && String(v).toLowerCase().includes(q))
       })
     }
-
     return subs
   }, [submissions, filter, search])
 
@@ -514,10 +640,10 @@ export default function FormSubmissionsPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-7 w-48 bg-white/[0.06]" />
-        <div className="grid grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 bg-white/[0.06]" />)}
+        <div className="grid grid-cols-3 gap-4">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 bg-white/[0.06]" />)}
         </div>
-        <Skeleton className="h-64 w-full bg-white/[0.06]" />
+        <Skeleton className="h-96 w-full bg-white/[0.06]" />
         {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full bg-white/[0.06]" />)}
       </div>
     )
@@ -525,7 +651,7 @@ export default function FormSubmissionsPage() {
 
   return (
     <>
-      {/* Header */}
+      {/* ── Header ── */}
       <div className="mb-6 flex items-center gap-3">
         <Link
           href="/dashboard/tally"
@@ -534,7 +660,6 @@ export default function FormSubmissionsPage() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-
         <div className="flex flex-1 items-center gap-3">
           <h1 className="text-[20px] font-semibold text-[#f9fafb]">{form?.name ?? 'Form'}</h1>
           {form?.workspace_name && (
@@ -546,30 +671,28 @@ export default function FormSubmissionsPage() {
             </span>
           )}
         </div>
-
         <span className="font-mono text-[13px] text-[#6b7280]">
           {total} submission{total !== 1 ? 's' : ''}
         </span>
       </div>
 
-      {/* Stats */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard label="Total"           value={total}                icon={FileText}    />
-        <StatCard label="Completed"       value={completed}            icon={CheckCircle} accent="#10b981" />
-        <StatCard label="Partial"         value={partial}              icon={AlertCircle} accent="#f59e0b" />
-        <StatCard label="Completion rate" value={`${completionRate}%`} icon={TrendingUp}  accent="#2563eb" />
+      {/* ── Stats (3 cards) ── */}
+      <div className="mb-6 grid grid-cols-3 gap-4">
+        <StatCard label="Started answering" value={total}                icon={MousePointer} accent="#6b7280" />
+        <StatCard label="Completions"        value={completed}            icon={CheckCircle}  accent="#10b981" />
+        <StatCard label="Completion rate"    value={`${completionRate}%`} icon={TrendingUp}   accent="#2563eb" />
       </div>
 
-      {/* Drop-off funnel */}
+      {/* ── Drop-off funnel ── */}
       <div
-        className="mb-6 rounded-xl p-5"
+        className="mb-8 rounded-xl p-6"
         style={{ backgroundColor: '#0d1117', border: '1px solid rgba(255,255,255,0.06)' }}
       >
-        <p className="mb-4 text-[13px] font-semibold text-[#f9fafb]">Question Drop-off</p>
-        <DropoffFunnel questions={questions} />
+        <p className="mb-6 text-[14px] font-semibold text-[#f9fafb]">Drop-off funnel</p>
+        <DropoffFunnel questions={questions} total={total} completed={completed} />
       </div>
 
-      {/* Filter bar */}
+      {/* ── Submissions section header ── */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {/* Filter tabs */}
         <div
@@ -596,28 +719,30 @@ export default function FormSubmissionsPage() {
         </div>
 
         {/* Search */}
-        <div
-          className="relative flex flex-1 items-center"
-          style={{ minWidth: '180px', maxWidth: '320px' }}
-        >
-          <Search
-            className="absolute left-2.5 h-3.5 w-3.5 text-[#4b5563]"
-            style={{ pointerEvents: 'none' }}
-          />
+        <div className="relative flex flex-1 items-center" style={{ minWidth: '180px', maxWidth: '320px' }}>
+          <Search className="absolute left-2.5 h-3.5 w-3.5 text-[#4b5563]" style={{ pointerEvents: 'none' }} />
           <input
             type="text"
             placeholder="Search answers…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full rounded-lg py-1.5 pl-8 pr-3 text-[12.5px] text-[#f9fafb] placeholder-[#4b5563] outline-none"
-            style={{
-              backgroundColor: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.06)',
-            }}
+            style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
           />
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Expand / Collapse all (cards mode only) */}
+          {viewMode === 'cards' && (
+            <button
+              onClick={() => setAllExpanded((v) => v === true ? false : true)}
+              className="rounded-lg px-3 py-1.5 text-[12px] font-medium text-[#6b7280] transition-colors hover:bg-white/5 hover:text-[#f9fafb]"
+              style={{ border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              {allExpanded ? 'Collapse all' : 'Expand all'}
+            </button>
+          )}
+
           {/* View toggle */}
           <div
             className="flex items-center gap-0.5 rounded-lg p-0.5"
@@ -647,7 +772,7 @@ export default function FormSubmissionsPage() {
             </button>
           </div>
 
-          {/* Export CSV */}
+          {/* Export CSV (table mode) */}
           {viewMode === 'table' && (
             <button
               onClick={() => exportCSV(visibleSubs, questions, form?.name ?? 'tally-export')}
@@ -661,7 +786,7 @@ export default function FormSubmissionsPage() {
         </div>
       </div>
 
-      {/* Submissions */}
+      {/* ── Submissions list ── */}
       {visibleSubs.length === 0 ? (
         <div
           className="flex items-center justify-center rounded-xl py-16"
@@ -681,6 +806,7 @@ export default function FormSubmissionsPage() {
               key={sub.id}
               sub={sub}
               questions={questions}
+              forceExpanded={allExpanded}
               onLeadCreated={handleLeadCreated}
             />
           ))}
