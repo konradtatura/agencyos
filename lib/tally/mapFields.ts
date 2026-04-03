@@ -57,15 +57,59 @@ function stringValue(value: unknown, options?: { id: string; text: string }[]): 
   return JSON.stringify(value)
 }
 
+export interface TallyResponseEntry {
+  id?:           string
+  questionId:    string
+  submissionId?: string
+  answer:        unknown
+}
+
+function resolveAnswer(answer: unknown): string | null {
+  if (answer === null || answer === undefined) return null
+
+  if (typeof answer === 'string')  return answer.trim() || null
+  if (typeof answer === 'number')  return String(answer)
+  if (typeof answer === 'boolean') return answer ? 'Yes' : 'No'
+
+  if (Array.isArray(answer)) {
+    if (answer.length === 0) return null
+    return answer.map((item) => {
+      if (typeof item === 'string') return item
+      if (typeof item === 'object' && item !== null) {
+        const o = item as Record<string, unknown>
+        return o.text ?? o.label ?? o.value ?? JSON.stringify(o)
+      }
+      return String(item)
+    }).join(', ') || null
+  }
+
+  if (typeof answer === 'object') {
+    const o = answer as Record<string, unknown>
+    // File upload / URL shape
+    if (typeof o.url === 'string') return o.url
+    if (typeof o.URL === 'string') return o.URL
+    // Single-key objects
+    const vals = Object.values(o)
+    if (vals.length === 1) return String(vals[0])
+    return JSON.stringify(o)
+  }
+
+  return String(answer)
+}
+
 /**
- * Map a submission whose answers live in submission.responses
- * (the shape returned by the Tally submissions API).
+ * Map a submission whose answers live in submission.responses.
  *
- * @param responses  { [questionId]: { value: unknown } }
- * @param questionMap  Map<questionId, questionTitle> built from the top-level questions array
+ * Actual Tally API shape (confirmed from logs):
+ *   responses: { "0": { id, questionId, submissionId, answer }, "1": ... }
+ *
+ * Keyed by numeric index string. Each entry carries questionId (not the key).
+ *
+ * @param responses  The raw responses object from the submission
+ * @param questionMap  Map<questionId, questionTitle> built from top-level questions array
  */
 export function mapTallyResponses(
-  responses: Record<string, { value?: unknown }>,
+  responses: Record<string, TallyResponseEntry>,
   questionMap: Map<string, string>,
 ): MappedSubmission {
   let name:  string | null = null
@@ -73,9 +117,10 @@ export function mapTallyResponses(
   let ig:    string | null = null
   const answers: Record<string, unknown> = {}
 
-  for (const [questionId, response] of Object.entries(responses)) {
-    const displayKey = questionMap.get(questionId) ?? questionId
-    const val = stringValue(response?.value)
+  for (const entry of Object.values(responses)) {
+    if (!entry?.questionId) continue
+    const displayKey = questionMap.get(entry.questionId) ?? entry.questionId
+    const val = resolveAnswer(entry.answer)
     const lower = displayKey.toLowerCase()
 
     answers[displayKey] = val

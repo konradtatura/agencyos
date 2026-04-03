@@ -10,7 +10,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getAgencyTallyKey } from '@/lib/tally/agencyKey'
-import { mapTallySubmission, mapTallyResponses, type TallyField } from '@/lib/tally/mapFields'
+import { mapTallySubmission, mapTallyResponses, type TallyField, type TallyResponseEntry } from '@/lib/tally/mapFields'
 
 interface TallyFormItem {
   id: string
@@ -49,7 +49,7 @@ interface TallySubmissionItem {
   createdAt?:   string
   isCompleted?: boolean
   fields?:      TallyField[]
-  responses?:   Record<string, { value?: unknown }>
+  responses?:   Record<string, TallyResponseEntry>
 }
 
 async function tallyFetch(url: string, apiKey: string): Promise<unknown> {
