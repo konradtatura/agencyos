@@ -91,6 +91,66 @@ function StatCard({
   )
 }
 
+// ── Funnel sub-components ─────────────────────────────────────────────────────
+
+function FunnelVLine() {
+  return (
+    <div className="flex justify-center">
+      <div className="h-8 w-px" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
+    </div>
+  )
+}
+
+function FunnelNode({
+  icon: Icon, iconBg, iconColor, value, label, valueColor = '#f9fafb', note,
+}: {
+  icon:        React.ElementType
+  iconBg:      string
+  iconColor:   string
+  value:       string | number
+  label:       string
+  valueColor?: string
+  note?:       string
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1.5 py-3">
+      <div
+        className="flex h-10 w-10 items-center justify-center rounded-full"
+        style={{ backgroundColor: iconBg, border: `1px solid ${iconColor}40` }}
+      >
+        <Icon className="h-4 w-4" style={{ color: iconColor }} />
+      </div>
+      <span className="font-mono text-[26px] font-bold leading-none" style={{ color: valueColor }}>
+        {value}
+      </span>
+      <span className="text-center text-[12.5px] text-[#9ca3af]">{label}</span>
+      {note && <span className="mt-0.5 text-center text-[11px] text-[#4b5563]">{note}</span>}
+    </div>
+  )
+}
+
+function FunnelDropConnector({ count, pct }: { count: number; pct: number }) {
+  const hasDrops = count > 0
+  const color    = hasDrops ? '#ef4444' : '#4b5563'
+  return (
+    <div className="flex flex-col items-center gap-1 py-1">
+      <div className="h-4 w-px" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
+      <div className="flex items-center gap-1.5">
+        <ArrowDown className="h-3.5 w-3.5" style={{ color }} />
+        {hasDrops && (
+          <span className="font-mono text-[15px] font-bold" style={{ color }}>
+            {pct}%
+          </span>
+        )}
+      </div>
+      <span className="text-[12px] font-medium" style={{ color }}>
+        {hasDrops ? `${count} drop-off${count !== 1 ? 's' : ''}` : 'No drop-offs'}
+      </span>
+      <div className="h-4 w-px" style={{ backgroundColor: 'rgba(255,255,255,0.07)' }} />
+    </div>
+  )
+}
+
 // ── Drop-off funnel (Tally-style) ─────────────────────────────────────────────
 
 function DropoffFunnel({
@@ -114,219 +174,108 @@ function DropoffFunnel({
 
   const q1Responses     = questions[0]?.numberOfResponses ?? 0
   const dropBeforeStart = Math.max(0, total - q1Responses)
+  const dropBeforePct   = total > 0 ? Math.round((dropBeforeStart / total) * 100) : 0
   const completionRate  = total > 0 ? Math.round((completed / total) * 100) : 0
 
   return (
-    <div className="relative">
-      {/* Vertical guide line */}
-      <div
-        className="absolute left-[19px] top-5 w-px"
-        style={{ bottom: '20px', backgroundColor: 'rgba(255,255,255,0.06)' }}
+    <div className="mx-auto max-w-2xl">
+      {/* ── Form views ── */}
+      <FunnelNode
+        icon={Eye} iconBg="rgba(107,114,128,0.1)" iconColor="#6b7280"
+        value={total} label="Form views"
+        note="Not available — tracked by Tally only"
       />
 
-      <div>
-        {/* ── Node: Form views ── */}
-        <div className="relative flex items-start gap-4 pb-1">
-          <div
-            className="relative z-10 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-            style={{ backgroundColor: 'rgba(107,114,128,0.1)', border: '1px solid rgba(107,114,128,0.2)' }}
-          >
-            <Eye className="h-4 w-4 text-[#6b7280]" />
-          </div>
-          <div className="pt-1">
-            <span className="font-mono text-[22px] font-bold leading-none text-[#f9fafb]">{total}</span>
-            <p className="mt-0.5 text-[12.5px] font-medium text-[#9ca3af]">Form views</p>
-            <p className="mt-0.5 text-[11px] text-[#4b5563]">Not available — tracked by Tally only</p>
-          </div>
-        </div>
+      {/* ── Drop-offs before starting ── */}
+      <FunnelDropConnector count={dropBeforeStart} pct={dropBeforePct} />
 
-        {/* ── Connector: drop-offs before starting ── */}
-        <div className="relative flex items-center gap-3 py-2 pl-[9px]">
-          <div
-            className="relative z-10 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
-            style={{
-              backgroundColor: dropBeforeStart > 0 ? 'rgba(239,68,68,0.1)' : 'rgba(75,85,99,0.1)',
-              border: `1px solid ${dropBeforeStart > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(75,85,99,0.15)'}`,
-            }}
-          >
-            <ArrowDown
-              className="h-2.5 w-2.5"
-              style={{ color: dropBeforeStart > 0 ? '#ef4444' : '#4b5563' }}
-            />
-          </div>
-          <span
-            className="text-[12px] font-medium"
-            style={{ color: dropBeforeStart > 0 ? '#ef4444' : '#4b5563' }}
-          >
-            {dropBeforeStart > 0
-              ? `${dropBeforeStart} drop-off${dropBeforeStart !== 1 ? 's' : ''} before starting`
-              : 'No drop-offs before starting'}
-          </span>
-        </div>
+      {/* ── Started answering ── */}
+      <FunnelNode
+        icon={MousePointer} iconBg="rgba(37,99,235,0.1)" iconColor="#2563eb"
+        value={q1Responses} label="Respondents started answering" valueColor="#2563eb"
+      />
 
-        {/* ── Node: Started answering ── */}
-        <div className="relative flex items-start gap-4 pb-5">
-          <div
-            className="relative z-10 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-            style={{ backgroundColor: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}
-          >
-            <MousePointer className="h-4 w-4 text-[#2563eb]" />
-          </div>
-          <div className="pt-1">
-            <span className="font-mono text-[22px] font-bold leading-none text-[#2563eb]">{q1Responses}</span>
-            <p className="mt-0.5 text-[12.5px] font-medium text-[#9ca3af]">Respondents started answering</p>
-          </div>
-        </div>
+      <FunnelVLine />
 
-        {/* ── Question rows ── */}
-        {questions.map((q, i) => {
-          const responses  = q.numberOfResponses ?? 0
-          const pct        = q1Responses > 0 ? Math.round((responses / q1Responses) * 100) : 0
-          const prevR      = i > 0 ? (questions[i - 1]?.numberOfResponses ?? q1Responses) : q1Responses
-          const dropoff    = Math.max(0, prevR - responses)
-          const dropPct    = prevR > 0 ? Math.round((dropoff / prevR) * 100) : 0
-          const hasDropoff = i > 0 && dropoff > 0
+      {/* ── Question rows ── */}
+      {questions.map((q, i) => {
+        const responses  = q.numberOfResponses ?? 0
+        const barPct     = q1Responses > 0 ? Math.round((responses / q1Responses) * 100) : 0
+        const prevR      = i > 0 ? (questions[i - 1]?.numberOfResponses ?? q1Responses) : q1Responses
+        const dropoff    = Math.max(0, prevR - responses)
+        const dropPct    = prevR > 0 ? Math.round((dropoff / prevR) * 100) : 0
+        const hasDropoff = i > 0 && dropoff > 0
 
-          return (
-            <div key={q.id} className="mb-3 ml-14">
-              {/* Connector before question (skip first) */}
-              {i > 0 && (
-                <div className="-ml-9 mb-2 flex items-center gap-3 pl-[9px]">
+        return (
+          <div key={q.id}>
+            {/* Separator between questions */}
+            {i > 0 && <FunnelVLine />}
+
+            <div className="py-2">
+              {/* Question title — centered */}
+              <p
+                className="mb-3 text-center text-[13px] font-medium leading-snug text-[#d1d5db]"
+                title={q.title}
+              >
+                {truncate(q.title ?? q.id, 80)}
+              </p>
+
+              {/* 3-column bar row */}
+              <div className="flex items-center gap-3">
+                {/* Left: views */}
+                <div className="w-[72px] shrink-0 text-right">
+                  <span className="text-[11.5px] text-[#6b7280]">{prevR} views</span>
+                </div>
+
+                {/* Center: proportional bar */}
+                <div className="flex flex-1 items-center">
                   <div
-                    className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
+                    className="flex h-10 items-center justify-center rounded-lg px-3 transition-all duration-700"
                     style={{
-                      backgroundColor: hasDropoff ? 'rgba(239,68,68,0.1)' : 'rgba(75,85,99,0.1)',
-                      border: `1px solid ${hasDropoff ? 'rgba(239,68,68,0.2)' : 'rgba(75,85,99,0.15)'}`,
+                      width:           `${Math.max(barPct, responses > 0 ? 10 : 2)}%`,
+                      minWidth:        responses > 0 ? '72px' : '4px',
+                      backgroundColor: 'rgba(37,99,235,0.13)',
+                      border:          '1px solid rgba(37,99,235,0.2)',
                     }}
                   >
-                    <ArrowDown
-                      className="h-2.5 w-2.5"
-                      style={{ color: hasDropoff ? '#ef4444' : '#4b5563' }}
-                    />
+                    <span className="whitespace-nowrap text-[13px] font-semibold text-[#2563eb]">
+                      {responses}
+                      {barPct > 18 && <span className="ml-1 font-normal text-[#60a5fa]">Answers</span>}
+                    </span>
                   </div>
-                  <span
-                    className="text-[11.5px] font-medium"
-                    style={{ color: hasDropoff ? '#ef4444' : '#4b5563' }}
-                  >
-                    {hasDropoff
-                      ? `${dropoff} drop-off${dropoff !== 1 ? 's' : ''} (${dropPct}%)`
-                      : 'No drop-offs'}
-                  </span>
-                </div>
-              )}
-
-              {/* Question card */}
-              <div
-                className="overflow-hidden rounded-xl px-4 pt-3 pb-3"
-                style={{
-                  backgroundColor: 'rgba(255,255,255,0.025)',
-                  border: '1px solid rgba(255,255,255,0.07)',
-                }}
-              >
-                {/* Question title */}
-                <p
-                  className="mb-3 text-[12.5px] font-medium leading-snug text-[#d1d5db]"
-                  title={q.title}
-                >
-                  {truncate(q.title ?? q.id, 80)}
-                </p>
-
-                {/* Progress bar */}
-                <div
-                  className="mb-2.5 h-[7px] overflow-hidden rounded-full"
-                  style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
-                >
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{
-                      width:           `${pct}%`,
-                      backgroundColor: '#2563eb',
-                      minWidth:        pct > 0 ? '4px' : '0',
-                    }}
-                  />
                 </div>
 
-                {/* Stats row */}
-                <div className="flex items-center justify-between gap-4">
-                  <span className="whitespace-nowrap text-[12px] text-[#6b7280]">
-                    <span className="font-mono font-semibold text-[#9ca3af]">{responses}</span>
-                    {' '}views
-                  </span>
-                  <span className="whitespace-nowrap text-[12px]">
-                    <span className="font-mono font-semibold text-[#2563eb]">{responses}</span>
-                    <span className="ml-1 text-[#6b7280]">Answers</span>
-                  </span>
-                  <span
-                    className="whitespace-nowrap text-[12px] font-medium"
-                    style={{ color: hasDropoff ? '#ef4444' : '#4b5563' }}
-                  >
-                    {i === 0
-                      ? '— No drop-offs'
-                      : hasDropoff
-                        ? `↓ ${dropPct}% · ${dropoff} drop-off${dropoff !== 1 ? 's' : ''}`
-                        : '— No drop-offs'}
-                  </span>
+                {/* Right: drop-off */}
+                <div className="w-[120px] shrink-0">
+                  {i === 0 || !hasDropoff ? (
+                    <span className="text-[11.5px] text-[#4b5563]">— No drop-offs</span>
+                  ) : (
+                    <span className="text-[11.5px] font-medium" style={{ color: '#ef4444' }}>
+                      ↓ {dropPct}% · {dropoff} drop-off{dropoff !== 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
-          )
-        })}
+          </div>
+        )
+      })}
 
-        {/* ── Connector before Completed ── */}
-        {(() => {
-          const lastR    = questions[questions.length - 1]?.numberOfResponses ?? 0
-          const dropFinal = Math.max(0, lastR - completed)
-          const hasDrop  = dropFinal > 0
-          const dropPct  = lastR > 0 ? Math.round((dropFinal / lastR) * 100) : 0
-          return (
-            <div className="flex items-center gap-3 py-2 pl-[9px]">
-              <div
-                className="relative z-10 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full"
-                style={{
-                  backgroundColor: hasDrop ? 'rgba(239,68,68,0.1)' : 'rgba(75,85,99,0.1)',
-                  border: `1px solid ${hasDrop ? 'rgba(239,68,68,0.2)' : 'rgba(75,85,99,0.15)'}`,
-                }}
-              >
-                <ArrowDown className="h-2.5 w-2.5" style={{ color: hasDrop ? '#ef4444' : '#4b5563' }} />
-              </div>
-              <span
-                className="text-[12px] font-medium"
-                style={{ color: hasDrop ? '#ef4444' : '#4b5563' }}
-              >
-                {hasDrop ? `${dropFinal} drop-off${dropFinal !== 1 ? 's' : ''} (${dropPct}%)` : 'No drop-offs'}
-              </span>
-            </div>
-          )
-        })()}
+      <FunnelVLine />
 
-        {/* ── Node: Completed ── */}
-        <div className="relative flex items-start gap-4 pb-3 pt-1">
-          <div
-            className="relative z-10 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-            style={{ backgroundColor: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}
-          >
-            <CheckCircle className="h-4 w-4 text-[#10b981]" />
-          </div>
-          <div className="pt-1">
-            <span className="font-mono text-[22px] font-bold leading-none text-[#10b981]">{completed}</span>
-            <p className="mt-0.5 text-[12.5px] font-medium text-[#9ca3af]">Respondents completed the form</p>
-          </div>
-        </div>
+      {/* ── Completed ── */}
+      <FunnelNode
+        icon={CheckCircle} iconBg="rgba(16,185,129,0.1)" iconColor="#10b981"
+        value={completed} label="Respondents completed the form" valueColor="#10b981"
+      />
 
-        {/* ── Node: Completion rate ── */}
-        <div className="relative flex items-start gap-4">
-          <div
-            className="relative z-10 mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
-            style={{ backgroundColor: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}
-          >
-            <TrendingUp className="h-4 w-4 text-[#2563eb]" />
-          </div>
-          <div className="pt-1">
-            <span className="font-mono text-[22px] font-bold leading-none text-[#2563eb]">{completionRate}%</span>
-            <p className="mt-0.5 text-[12.5px] font-medium text-[#9ca3af]">Completion rate</p>
-          </div>
-        </div>
-      </div>
+      <FunnelVLine />
+
+      {/* ── Completion rate ── */}
+      <FunnelNode
+        icon={TrendingUp} iconBg="rgba(16,185,129,0.1)" iconColor="#10b981"
+        value={`${completionRate}%`} label="Completion" valueColor="#10b981"
+      />
     </div>
   )
 }
