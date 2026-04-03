@@ -36,10 +36,13 @@ interface TallySubmissionsResponse {
   submissions?:                         unknown[]
   questions?:                           TallyQuestion[]
   totalNumberOfSubmissionsPerFilter?:   TallySubmissionCounts
+  hasMore?:                             boolean
+  page?:                                number
   data?: {
     submissions?: unknown[]
     questions?:   TallyQuestion[]
     totalNumberOfSubmissionsPerFilter?: TallySubmissionCounts
+    hasMore?:     boolean
   }
 }
 
@@ -108,6 +111,50 @@ function extractSubmissions(json: unknown): TallySubmissionItem[] {
 
   console.warn('[tally/sync] extractSubmissions: no .submissions key. Top-level keys:', Object.keys(j))
   return []
+}
+
+// Fetch ALL pages of submissions for a form.
+// Uses ?filter=all so Tally returns every submission regardless of status.
+// Questions and counts are only present on page 1; subsequent pages add submissions only.
+async function fetchAllSubmissions(formId: string, apiKey: string): Promise<{
+  submissions: TallySubmissionItem[]
+  questions:   TallyQuestion[]
+  counts:      TallySubmissionCounts
+}> {
+  let page    = 1
+  let allSubs: TallySubmissionItem[] = []
+  let questions: TallyQuestion[]      = []
+  let counts:    TallySubmissionCounts = {}
+
+  while (true) {
+    const url  = `https://api.tally.so/forms/${formId}/submissions?limit=50&page=${page}&filter=all`
+    const json = await tallyFetch(url, apiKey) as TallySubmissionsResponse
+
+    const pageSubs = extractSubmissions(json)
+    allSubs = allSubs.concat(pageSubs)
+
+    if (page === 1) {
+      questions = json.questions ?? json.data?.questions ?? []
+      counts    = json.totalNumberOfSubmissionsPerFilter
+                  ?? json.data?.totalNumberOfSubmissionsPerFilter
+                  ?? {}
+    }
+
+    const hasMore = json.hasMore ?? json.data?.hasMore ?? false
+    console.log(
+      `[tally/sync] form ${formId} page ${page}:`,
+      `${pageSubs.length} submissions, hasMore=${hasMore}`,
+    )
+
+    if (!hasMore || pageSubs.length === 0) break
+    page++
+    if (page > 100) {
+      console.warn(`[tally/sync] form ${formId}: hit 100-page safety limit`)
+      break
+    }
+  }
+
+  return { submissions: allSubs, questions, counts }
 }
 
 export async function POST() {
@@ -181,19 +228,9 @@ export async function POST() {
     let counts:      TallySubmissionCounts = {}
 
     try {
-      const subJson = await tallyFetch(
-        `https://api.tally.so/forms/${form.id}/submissions`,
-        apiKey,
-      ) as TallySubmissionsResponse
-
-      submissions = extractSubmissions(subJson)
-      questions   = subJson.questions ?? subJson.data?.questions ?? []
-      counts      = subJson.totalNumberOfSubmissionsPerFilter
-                    ?? subJson.data?.totalNumberOfSubmissionsPerFilter
-                    ?? {}
-
+      ;({ submissions, questions, counts } = await fetchAllSubmissions(form.id, apiKey))
       console.log(
-        `[tally/sync] form ${form.id}:`,
+        `[tally/sync] form ${form.id} total:`,
         `submissions=${submissions.length}`,
         `questions=${questions.length}`,
         `counts=`, JSON.stringify(counts),
