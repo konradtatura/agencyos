@@ -31,15 +31,29 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const admin = createAdminClient()
 
+  const newCreatorId = body.creator_id ?? null
+
   const { data, error } = await admin
     .from('tally_forms')
-    .update({ creator_id: body.creator_id ?? null })
+    .update({ creator_id: newCreatorId })
     .eq('id', params.formId)
     .select('id, name, creator_id')
     .single()
 
   if (error || !data) {
     return NextResponse.json({ error: error?.message ?? 'Form not found' }, { status: 404 })
+  }
+
+  // Backfill all existing submissions for this form with the new creator_id.
+  // Submissions are synced with creator_id = null; this makes them visible
+  // to the creator immediately after assignment without waiting for a re-sync.
+  const { error: subError } = await admin
+    .from('tally_submissions')
+    .update({ creator_id: newCreatorId })
+    .eq('form_id', params.formId)
+
+  if (subError) {
+    console.error('[assign] submissions backfill error:', subError.message)
   }
 
   return NextResponse.json(data)
