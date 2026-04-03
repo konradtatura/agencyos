@@ -84,29 +84,24 @@ function extractForms(json: unknown): TallyFormItem[] {
   return []
 }
 
-// Robustly extract the submissions array
+// Extract submissions from the Tally API response.
+// The confirmed shape is: { page, limit, hasMore, questions: [...], submissions: [...] }
+// We MUST read .submissions explicitly — the response also contains a `questions`
+// array, so any "return the first array found" fallback would grab the wrong one.
 function extractSubmissions(json: unknown): TallySubmissionItem[] {
   if (!json || typeof json !== 'object') return []
   const j = json as Record<string, unknown>
 
+  // Root-level array (unusual but possible)
   if (Array.isArray(j)) return j as TallySubmissionItem[]
 
-  const candidates = [
-    j.submissions,
-    j.responses,
-    j.items,
-    (j.data as Record<string, unknown> | undefined)?.submissions,
-    (j.data as Record<string, unknown> | undefined)?.responses,
-    (j.data as Record<string, unknown> | undefined)?.items,
-  ]
-  for (const c of candidates) {
-    if (Array.isArray(c)) return c as TallySubmissionItem[]
-  }
+  // Primary: explicit named keys only — no fallback array scan
+  const explicit = j.submissions ?? (j.data as Record<string, unknown> | undefined)?.submissions
+  if (Array.isArray(explicit)) return explicit as TallySubmissionItem[]
 
-  for (const val of Object.values(j)) {
-    if (Array.isArray(val)) return val as TallySubmissionItem[]
-  }
-
+  // Log if we couldn't find submissions so the shape shows up in Railway logs
+  const keys = Object.keys(j)
+  console.warn('[tally/sync] extractSubmissions: no .submissions key found. Top-level keys:', keys)
   return []
 }
 
@@ -232,10 +227,19 @@ export async function POST() {
       continue
     }
 
-    // creator_id omitted: inherited from the form's assignment at query time,
-    // not duplicated into every submission row during sync.
+    // Log the first submission's first field so we can verify the shape in Railway
+    if (submissions[0]) {
+      const sample = submissions[0]
+      const sampleFields = sample.fields ?? []
+      console.log(
+        `[tally/sync] form ${form.id} sample submission id=${sample.id}`,
+        `fields count=${sampleFields.length}`,
+        `first field=`, JSON.stringify(sampleFields[0] ?? null),
+      )
+    }
+
     const rows = submissions.map((s) => {
-      const fields = s.fields ?? s.responses ?? []
+      const fields = s.fields ?? []
       const { name, phone, ig, answers } = mapTallySubmission(fields)
       return {
         form_id:               formRow.id as string,
