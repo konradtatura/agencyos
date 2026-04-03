@@ -62,6 +62,12 @@ const ADMIN_NAV: NavSection[] = [
     ],
   },
   {
+    title: 'Integrations',
+    items: [
+      { href: '/admin/tally', icon: ListChecks, label: 'Tally Forms' },
+    ],
+  },
+  {
     title: 'System',
     items: [
       { href: '/admin/settings', icon: Settings2, label: 'Settings' },

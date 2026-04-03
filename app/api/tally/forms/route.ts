@@ -1,7 +1,8 @@
 /**
  * GET /api/tally/forms
  *
- * Returns the calling creator's connected status + list of tally_forms.
+ * Returns tally_forms assigned to the calling creator.
+ * No "connected" check — the agency key is managed by admin.
  */
 
 import { NextResponse } from 'next/server'
@@ -29,17 +30,6 @@ export async function GET() {
 
   const creatorId = profile.id as string
 
-  // Check connection
-  const { data: keyRow } = await admin
-    .from('tally_api_keys')
-    .select('connected_at')
-    .eq('creator_id', creatorId)
-    .maybeSingle()
-
-  if (!keyRow) {
-    return NextResponse.json({ connected: false, forms: [], last_synced_at: null })
-  }
-
   const { data: forms } = await admin
     .from('tally_forms')
     .select('id, tally_form_id, name, workspace_name, total_submissions, last_synced_at, is_qualification_form, active')
@@ -47,14 +37,12 @@ export async function GET() {
     .eq('active', true)
     .order('name', { ascending: true })
 
-  const lastSynced = forms && forms.length > 0
-    ? forms.reduce<string | null>((latest, f) => {
-        const t = f.last_synced_at as string | null
-        if (!t) return latest
-        if (!latest) return t
-        return t > latest ? t : latest
-      }, null)
-    : null
+  const lastSynced = (forms ?? []).reduce<string | null>((latest, f) => {
+    const t = f.last_synced_at as string | null
+    if (!t) return latest
+    if (!latest) return t
+    return t > latest ? t : latest
+  }, null)
 
-  return NextResponse.json({ connected: true, forms: forms ?? [], last_synced_at: lastSynced })
+  return NextResponse.json({ forms: forms ?? [], last_synced_at: lastSynced })
 }
