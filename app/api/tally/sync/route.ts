@@ -200,9 +200,10 @@ export async function POST() {
     const existing = existingMap.get(form.id)
     const workspaceName = form.workspaceName ?? form.workspace?.name ?? null
 
+    // creator_id is intentionally omitted: new rows get null (default),
+    // existing rows keep their current assignment untouched.
     const { error: upsertErr } = await admin.from('tally_forms').upsert(
       {
-        creator_id:            existing?.creatorId ?? null,
         tally_form_id:         form.id,
         name:                  form.name ?? null,
         workspace_name:        workspaceName,
@@ -231,11 +232,12 @@ export async function POST() {
       continue
     }
 
+    // creator_id omitted: inherited from the form's assignment at query time,
+    // not duplicated into every submission row during sync.
     const rows = submissions.map((s) => {
       const fields = s.fields ?? s.responses ?? []
       const { name, phone, ig, answers } = mapTallySubmission(fields)
       return {
-        creator_id:            formRow.creator_id as string | null,
         form_id:               formRow.id as string,
         tally_submission_id:   s.id,
         answers,
