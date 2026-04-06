@@ -86,18 +86,27 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdminClient()
 
-    // Resolve creator_id from location_id
-    const { data: integration, error: intErr } = await admin
-      .from('integrations')
-      .select('creator_id')
+    // Resolve creator_id from ghl_location_id on creator_profiles
+    console.log('[pageview] looking up creator for location_id:', location_id)
+    const { data: profile, error: profileErr } = await admin
+      .from('creator_profiles')
+      .select('id')
       .eq('ghl_location_id', location_id)
       .maybeSingle()
 
-    if (intErr) console.error('[pageview] integration lookup error:', intErr)
-    console.log('[pageview] integration:', integration)
+    if (profileErr) console.error('[pageview] creator_profiles lookup error:', profileErr)
+    const creatorId = profile?.id ?? null
+    console.log('[pageview] resolved creator_id:', creatorId)
+
+    if (!creatorId) {
+      return NextResponse.json(
+        { ok: false, error: 'creator not found for location_id' },
+        { headers },
+      )
+    }
 
     const row = {
-      creator_id:       integration?.creator_id ?? null,
+      creator_id:       creatorId,
       location_id:      String(location_id),
       page_path:        String(page_path),
       page_name:        String(page_name ?? ''),
