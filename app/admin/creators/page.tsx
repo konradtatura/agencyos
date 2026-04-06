@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import PageHeader from '@/components/ui/page-header'
 import AddCreatorPanel from './add-creator-panel'
+import EditCreatorPanel from './edit-creator-panel'
 import { isTokenExpired } from '@/lib/instagram/token'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -16,6 +17,7 @@ type CreatorRow = {
   id: string
   name: string
   niche: string | null
+  ghl_location_id: string | null
   onboarding_complete: boolean
   created_at: string
   users: { email: string; full_name: string | null } | null
@@ -167,6 +169,29 @@ function IgStatsRow({ ig }: { ig: IgAccountRow | null }) {
   )
 }
 
+function GhlBadge({ locationId }: { locationId: string | null }) {
+  if (locationId) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+        style={{ backgroundColor: 'rgba(16,185,129,0.12)', color: '#34d399' }}
+      >
+        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#34d399' }} />
+        GHL Connected
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+      style={{ backgroundColor: 'rgba(107,114,128,0.12)', color: '#6b7280' }}
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#6b7280' }} />
+      GHL Not Set
+    </span>
+  )
+}
+
 function CreatorCard({ creator, storiesStats }: { creator: CreatorRow; storiesStats: StoriesStats | null }) {
   const colors   = avatarColors(creator.name)
   const initials = getInitials(creator.name)
@@ -199,6 +224,7 @@ function CreatorCard({ creator, storiesStats }: { creator: CreatorRow; storiesSt
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           <StatusBadge    complete={creator.onboarding_complete} />
           <InstagramBadge state={igState} />
+          <GhlBadge locationId={creator.ghl_location_id} />
         </div>
       </div>
 
@@ -247,6 +273,15 @@ function CreatorCard({ creator, storiesStats }: { creator: CreatorRow; storiesSt
           </div>
         </div>
       )}
+
+      {/* Edit button */}
+      <div className="mt-4 flex justify-end">
+        <EditCreatorPanel
+          creatorId={creator.id}
+          creatorName={creator.name}
+          ghlLocationId={creator.ghl_location_id}
+        />
+      </div>
     </div>
   )
 }
@@ -297,6 +332,7 @@ export default async function CreatorsPage() {
         id,
         name,
         niche,
+        ghl_location_id,
         onboarding_complete,
         created_at,
         users!user_id ( email, full_name ),

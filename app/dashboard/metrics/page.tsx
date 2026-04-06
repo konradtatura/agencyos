@@ -13,20 +13,11 @@ async function getLocationId(): Promise<string | null> {
     const admin = createAdminClient()
     const { data: profile } = await admin
       .from('creator_profiles')
-      .select('id')
+      .select('ghl_location_id')
       .eq('user_id', user.id)
       .maybeSingle()
-    if (!profile) return null
 
-    const { data: integration } = await admin
-      .from('integrations')
-      .select('ghl_location_id')
-      .eq('creator_id', profile.id)
-      .eq('platform', 'ghl')
-      .not('ghl_location_id', 'is', null)
-      .maybeSingle()
-
-    return (integration?.ghl_location_id as string | null) ?? null
+    return profile?.ghl_location_id ?? null
   } catch {
     return null
   }

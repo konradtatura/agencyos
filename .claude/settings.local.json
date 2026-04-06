@@ -55,7 +55,9 @@
       "Bash(curl -s -X POST https://api.supabase.com/v1/projects/emnzxzwcbxmxnwdzaytj/database/query -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtbnp4endjYnhteG53ZHpheXRqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDM1Mzk3NiwiZXhwIjoyMDg5OTI5OTc2fQ.l0hw-MU5dfOBa-b0uoaJl9sD0YovHSnFOFhlQ_P4Gt4' -H 'Content-Type: application/json' -d '{\"query\": \"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '\\\\''instagram_post_metrics'\\\\'' ORDER BY ordinal_position\"}')",
       "Read(//Users/konradtatura/**)",
       "Read(//Users/konradtatura/.supabase/**)",
-      "Bash(node -e \"require\\('pg'\\)\")"
+      "Bash(node -e \"require\\('pg'\\)\")",
+      "Bash(npx shadcn@latest add switch --yes)",
+      "Bash(git reset:*)"
     ]
   }
 }

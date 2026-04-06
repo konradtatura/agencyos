@@ -1,18 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { Code2, Copy, Check, ChevronDown, ChevronUp } from 'lucide-react'
+import { Code2, Copy, Check, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import { getTrackingScript } from '@/lib/tracking/script'
 
 export default function TrackingScriptPanel({ locationId }: { locationId: string | null }) {
   const [open, setOpen]     = useState(false)
   const [copied, setCopied] = useState(false)
 
-  const script = locationId
-    ? getTrackingScript(locationId)
-    : getTrackingScript('YOUR_GHL_LOCATION_ID')
+  const script = locationId ? getTrackingScript(locationId) : null
 
   function handleCopy() {
+    if (!script) return
     navigator.clipboard.writeText(script).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
@@ -30,9 +29,13 @@ export default function TrackingScriptPanel({ locationId }: { locationId: string
           <span className="text-[11px] font-semibold uppercase tracking-widest text-white/50">
             Funnel Tracking Script
           </span>
-          {!locationId && (
+          {locationId ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#10b981]/10 text-[#10b981] font-medium">
+              Connected
+            </span>
+          ) : (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#f59e0b]/10 text-[#f59e0b] font-medium">
-              GHL location not connected
+              Not connected
             </span>
           )}
         </div>
@@ -49,20 +52,32 @@ export default function TrackingScriptPanel({ locationId }: { locationId: string
 
       {open && (
         <div className="border-t border-white/[0.06]">
-          <div className="relative">
-            <pre className="px-5 py-4 text-[11px] font-mono text-white/50 overflow-x-auto leading-relaxed max-h-64 scrollbar-thin">
-              {script}
-            </pre>
-            <button
-              onClick={handleCopy}
-              className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition-all text-[11px] font-medium text-white/50 hover:text-white/80"
-            >
-              {copied
-                ? <><Check size={11} className="text-[#10b981]" /> Copied</>
-                : <><Copy size={11} /> Copy</>
-              }
-            </button>
-          </div>
+          {script ? (
+            <div className="relative">
+              <pre className="px-5 py-4 text-[11px] font-mono text-white/50 overflow-x-auto leading-relaxed max-h-64 scrollbar-thin">
+                {script}
+              </pre>
+              <button
+                onClick={handleCopy}
+                className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] border border-white/[0.08] transition-all text-[11px] font-medium text-white/50 hover:text-white/80"
+              >
+                {copied
+                  ? <><Check size={11} className="text-[#10b981]" /> Copied</>
+                  : <><Copy size={11} /> Copy</>
+                }
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-start gap-3 px-5 py-4">
+              <AlertTriangle size={15} className="text-[#f59e0b] shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[13px] font-medium text-[#f9fafb]">GHL Location ID not set</p>
+                <p className="mt-0.5 text-[12.5px] text-[#6b7280]">
+                  GHL Location ID not set — contact your admin.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import PageHeader from '@/components/ui/page-header'
 import { isTokenExpired } from '@/lib/instagram/token'
 import DisconnectButton from './disconnect-button'
-import { AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Link2 } from 'lucide-react'
 
 function IgIcon({ className }: { className?: string }) {
   return (
@@ -67,6 +67,7 @@ export default async function SettingsPage() {
   }
 
   let integration: IgIntegration | null = null
+  let ghlLocationId: string | null = null
 
   if (user) {
     // Admin client bypasses RLS — identity already verified by getUser() above.
@@ -74,11 +75,13 @@ export default async function SettingsPage() {
 
     const { data: profile } = await admin
       .from('creator_profiles')
-      .select('id')
+      .select('id, ghl_location_id')
       .eq('user_id', user.id)
       .maybeSingle()
 
     if (profile?.id) {
+      ghlLocationId = profile.ghl_location_id ?? null
+
       const { data } = await admin
         .from('integrations')
         .select('status, expires_at, meta')
@@ -206,6 +209,56 @@ export default async function SettingsPage() {
                   <IgIcon className="h-3.5 w-3.5" />
                   Connect Instagram
                 </a>
+              )}
+            </div>
+          </div>
+        </IntegrationRow>
+      </section>
+
+      {/* ── GHL ────────────────────────────────────────────────────── */}
+      <section className="mt-8">
+        <SectionHeading title="GoHighLevel" />
+
+        <IntegrationRow>
+          <div className="flex items-start gap-4">
+            <div
+              className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+              style={{ backgroundColor: 'rgba(37,99,235,0.12)' }}
+            >
+              <Link2 className="h-5 w-5 text-[#2563eb]" />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <p className="mb-1 text-[14px] font-semibold text-[#f9fafb]">GHL Location</p>
+
+              {ghlLocationId ? (
+                <>
+                  <span
+                    className="mb-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    style={{ backgroundColor: 'rgba(16,185,129,0.12)', color: '#34d399' }}
+                  >
+                    <CheckCircle2 className="h-3 w-3" />
+                    Connected
+                  </span>
+                  <p className="mt-2 text-[12px] text-[#6b7280]">Location ID</p>
+                  <p className="font-mono text-[13px] text-[#d1d5db] break-all">{ghlLocationId}</p>
+                  <p className="mt-2 text-[12px] text-[#4b5563]">
+                    To change this, contact your agency admin.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <span
+                    className="mb-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    style={{ backgroundColor: 'rgba(107,114,128,0.12)', color: '#6b7280' }}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#6b7280]" />
+                    Not connected
+                  </span>
+                  <p className="mt-1 text-[12.5px] text-[#6b7280]">
+                    Your agency admin can link a GHL location to enable funnel tracking.
+                  </p>
+                </>
               )}
             </div>
           </div>
