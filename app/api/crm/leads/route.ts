@@ -6,16 +6,11 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveCrmUser } from '../_auth'
-import type { Lead, LeadStage, OfferTier, LeadSourceType, PipelineType } from '@/types/crm'
-
-const VALID_STAGES: LeadStage[] = [
-  'dmd', 'qualifying', 'qualified', 'call_booked', 'showed',
-  'closed_won', 'closed_lost', 'follow_up', 'nurture', 'disqualified', 'dead',
-]
+import type { Lead, OfferTier, LeadSourceType, PipelineType } from '@/types/crm'
 
 const VALID_OFFER_TIERS: OfferTier[] = ['ht', 'mt', 'lt']
 
-const VALID_SOURCE_TYPES: LeadSourceType[] = ['story', 'reel', 'organic', 'manual']
+const VALID_SOURCE_TYPES: LeadSourceType[] = ['story', 'reel', 'organic', 'manual', 'vsl_funnel']
 
 const VALID_PIPELINE_TYPES: PipelineType[] = ['main', 'downgrade']
 

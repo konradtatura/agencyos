@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Clock, Calendar, AlertTriangle } from 'lucide-react'
 import type { Lead } from '@/types/crm'
 import DisqualifyModal from './DisqualifyModal'
@@ -9,13 +8,22 @@ import DisqualifyModal from './DisqualifyModal'
 interface LeadCardProps {
   lead: Lead
   isDragging?: boolean
+  onOpen: (id: string) => void
   onDisqualified?: () => void
 }
 
 const TIER_CONFIG = {
-  ht: { label: 'HT', bg: 'rgba(37,99,235,0.18)', color: '#60a5fa', border: 'rgba(37,99,235,0.35)' },
-  mt: { label: 'MT', bg: 'rgba(245,158,11,0.18)', color: '#fbbf24', border: 'rgba(245,158,11,0.35)' },
-  lt: { label: 'LT', bg: 'rgba(16,185,129,0.18)', color: '#34d399', border: 'rgba(16,185,129,0.35)' },
+  ht: { label: 'HT', bg: 'rgba(37,99,235,0.18)',   color: '#60a5fa', border: 'rgba(37,99,235,0.35)'  },
+  mt: { label: 'MT', bg: 'rgba(245,158,11,0.18)',  color: '#fbbf24', border: 'rgba(245,158,11,0.35)' },
+  lt: { label: 'LT', bg: 'rgba(16,185,129,0.18)',  color: '#34d399', border: 'rgba(16,185,129,0.35)' },
+}
+
+const SOURCE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  story:      { label: 'Story',   color: '#c084fc', bg: 'rgba(192,132,252,0.12)' },
+  reel:       { label: 'Reel',    color: '#60a5fa', bg: 'rgba(96,165,250,0.12)'  },
+  vsl_funnel: { label: 'VSL',     color: '#34d399', bg: 'rgba(52,211,153,0.12)'  },
+  organic:    { label: 'Organic', color: '#9ca3af', bg: 'rgba(156,163,175,0.1)'  },
+  manual:     { label: 'Manual',  color: '#9ca3af', bg: 'rgba(156,163,175,0.1)'  },
 }
 
 function getInitials(name: string) {
@@ -32,18 +40,18 @@ function getFollowUpStatus(dateStr: string | null) {
   const midnight = new Date(); midnight.setHours(0, 0, 0, 0)
   const diffDays = Math.floor((date.getTime() - midnight.getTime()) / 86_400_000)
   const label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  if (diffDays < 0) return { label, color: '#ef4444', overdue: true }
+  if (diffDays < 0)  return { label, color: '#ef4444', overdue: true  }
   if (diffDays <= 2) return { label, color: '#f59e0b', overdue: false }
   return { label, color: '#4b5563', overdue: false }
 }
 
-export default function LeadCard({ lead, isDragging, onDisqualified }: LeadCardProps) {
-  const router = useRouter()
+export default function LeadCard({ lead, isDragging, onOpen, onDisqualified }: LeadCardProps) {
   const [disqualifyOpen, setDisqualifyOpen] = useState(false)
 
-  const tier = lead.offer_tier ? TIER_CONFIG[lead.offer_tier] : null
-  const days = getDaysSince(lead.updated_at)
+  const tier     = lead.offer_tier ? TIER_CONFIG[lead.offer_tier as keyof typeof TIER_CONFIG] : null
+  const days     = getDaysSince(lead.updated_at)
   const followUp = getFollowUpStatus(lead.follow_up_date)
+  const source   = lead.lead_source_type ? SOURCE_CONFIG[lead.lead_source_type] : null
 
   return (
     <>
@@ -51,8 +59,8 @@ export default function LeadCard({ lead, isDragging, onDisqualified }: LeadCardP
         className="group"
         role="button"
         tabIndex={0}
-        onClick={() => router.push(`/dashboard/crm/${lead.id}`)}
-        onKeyDown={(e) => e.key === 'Enter' && router.push(`/dashboard/crm/${lead.id}`)}
+        onClick={() => onOpen(lead.id)}
+        onKeyDown={(e) => e.key === 'Enter' && onOpen(lead.id)}
         style={{
           backgroundColor: isDragging ? '#111827' : '#0d1117',
           border: `1px solid ${isDragging ? 'rgba(37,99,235,0.35)' : 'rgba(255,255,255,0.06)'}`,
@@ -87,20 +95,14 @@ export default function LeadCard({ lead, isDragging, onDisqualified }: LeadCardP
           <div style={{ flex: 1, minWidth: 0 }}>
             <p
               style={{
-                fontSize: 12, fontWeight: 600, color: '#e5e7eb',
-                lineHeight: 1.25,
+                fontSize: 12, fontWeight: 600, color: '#e5e7eb', lineHeight: 1.25,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}
             >
               {lead.name}
             </p>
             {lead.ig_handle && (
-              <p
-                style={{
-                  fontSize: 10.5, color: '#4b5563', marginTop: 1,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}
-              >
+              <p style={{ fontSize: 10.5, color: '#4b5563', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 @{lead.ig_handle}
               </p>
             )}
@@ -122,13 +124,8 @@ export default function LeadCard({ lead, isDragging, onDisqualified }: LeadCardP
         </div>
 
         {/* Row 2: meta chips */}
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 7 }}>
-          <span
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 3,
-              fontSize: 10, color: '#374151',
-            }}
-          >
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 5, marginBottom: 7 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#374151' }}>
             <Clock size={9} strokeWidth={2.5} />
             {days === 0 ? 'Today' : `${days}d`}
           </span>
@@ -147,6 +144,18 @@ export default function LeadCard({ lead, isDragging, onDisqualified }: LeadCardP
               {followUp.label}
             </span>
           )}
+
+          {source && (
+            <span
+              style={{
+                fontSize: 9, fontWeight: 600, letterSpacing: '0.04em',
+                padding: '1px 5px', borderRadius: 4,
+                backgroundColor: source.bg, color: source.color,
+              }}
+            >
+              {source.label}
+            </span>
+          )}
         </div>
 
         {/* Row 3: assigned avatars + disqualify */}
@@ -157,8 +166,7 @@ export default function LeadCard({ lead, isDragging, onDisqualified }: LeadCardP
                 title="Setter"
                 style={{
                   width: 18, height: 18, borderRadius: '50%',
-                  backgroundColor: '#1e293b',
-                  border: '1.5px solid #0d1117',
+                  backgroundColor: '#1e293b', border: '1.5px solid #0d1117',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 8, fontWeight: 700, color: '#64748b',
                   marginRight: lead.assigned_closer_id ? -4 : 0,
@@ -173,8 +181,7 @@ export default function LeadCard({ lead, isDragging, onDisqualified }: LeadCardP
                 title="Closer"
                 style={{
                   width: 18, height: 18, borderRadius: '50%',
-                  backgroundColor: '#162032',
-                  border: '1.5px solid #0d1117',
+                  backgroundColor: '#162032', border: '1.5px solid #0d1117',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 8, fontWeight: 700, color: '#2563eb',
                   position: 'relative',
@@ -185,22 +192,16 @@ export default function LeadCard({ lead, isDragging, onDisqualified }: LeadCardP
             )}
           </div>
 
-          {/* Disqualify — visible only on hover via CSS group */}
           <button
             className="opacity-0 group-hover:opacity-100"
             style={{
-              fontSize: 10, fontWeight: 500,
-              color: '#ef4444',
+              fontSize: 10, fontWeight: 500, color: '#ef4444',
               padding: '2px 7px', borderRadius: 4,
               border: '1px solid rgba(239,68,68,0.25)',
               backgroundColor: 'rgba(239,68,68,0.07)',
-              cursor: 'pointer',
-              transition: 'opacity 0.15s',
+              cursor: 'pointer', transition: 'opacity 0.15s',
             }}
-            onClick={(e) => {
-              e.stopPropagation()
-              setDisqualifyOpen(true)
-            }}
+            onClick={(e) => { e.stopPropagation(); setDisqualifyOpen(true) }}
           >
             Disqualify
           </button>

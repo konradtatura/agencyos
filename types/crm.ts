@@ -1,24 +1,23 @@
-export type LeadStage =
-  | 'dmd'
-  | 'qualifying'
-  | 'qualified'
-  | 'call_booked'
-  | 'showed'
-  | 'closed_won'
-  | 'closed_lost'
-  | 'follow_up'
-  | 'nurture'
-  | 'disqualified'
-  | 'dead'
-  | 'no_show'
+// LeadStage and DowngradeStage are now plain strings — values come from
+// the pipeline_stages table rather than a hardcoded enum.
+export type LeadStage = string
+export type DowngradeStage = string
 
 export type OfferTier = 'ht' | 'mt' | 'lt'
-
 export type PipelineType = 'main' | 'downgrade'
-
-export type DowngradeStage = 'offered' | 'interested' | 'booked' | 'closed' | 'dead'
-
 export type LeadSourceType = 'story' | 'reel' | 'organic' | 'manual' | 'vsl_funnel'
+
+export interface PipelineStage {
+  id: string
+  creator_id: string
+  pipeline_type: 'main' | 'downgrade'
+  name: string
+  color: string
+  position: number
+  is_won: boolean
+  is_lost: boolean
+  created_at: string
+}
 
 export interface Lead {
   id: string
@@ -69,23 +68,3 @@ export interface LeadWithRelations extends Lead {
   setter_name?: string
   closer_name?: string
 }
-
-export const MAIN_PIPELINE_STAGES: LeadStage[] = [
-  'dmd',
-  'qualifying',
-  'qualified',
-  'call_booked',
-  'showed',
-  'closed_won',
-  'closed_lost',
-  'follow_up',
-  'nurture',
-]
-
-export const DOWNGRADE_PIPELINE_STAGES: DowngradeStage[] = [
-  'offered',
-  'interested',
-  'booked',
-  'closed',
-  'dead',
-]
