@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '../../../_auth'
+import { resolveCrmUser } from '../../_auth'
 import type { PipelineStage } from '@/types/crm'
 
 // ── PATCH ─────────────────────────────────────────────────────────────────────
