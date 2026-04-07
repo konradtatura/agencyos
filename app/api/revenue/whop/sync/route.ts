@@ -1,81 +1,94 @@
 /**
  * POST /api/revenue/whop/sync
  *
- * Pulls all Whop memberships for the creator, upserts into sales table,
- * upserts Whop products into products table, and tries to match customer
- * emails to existing CRM leads.
+ * Fetches paid payments from the Whop v1 payments API and upserts them
+ * into the sales table, matching customer emails to CRM leads where possible.
  */
 
 import { NextResponse } from 'next/server'
 import { resolveCrmUser } from '../../../crm/_auth'
 import { decrypt } from '@/lib/crypto'
 
-// ── Whop API helpers ──────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-interface WhopMembership {
-  id:          string
-  status:      string
-  plan_id:     string | null
-  product_id:  string | null
-  user: {
-    id:       string
-    username: string | null
-    email:    string | null
+interface WhopPayment {
+  id:         string
+  status:     string
+  substatus?: string | null
+  paid_at:    string | null
+  created_at: string
+  final_amount?: number | null
+  subtotal?:     number | null
+  product?: {
+    id:    string
+    title: string
   } | null
-  price_cents:         number | null
-  interval:            string | null
-  renewal_period_start: string | null
-  renewal_period_end:   string | null
-  created_at:          string
-  product: {
-    id:   string
-    name: string
+  plan?: {
+    id: string
   } | null
-  plan: {
-    id:          string
-    name:        string
-    price_cents: number | null
+  user?: {
+    email: string | null
+    name:  string | null
   } | null
 }
 
-interface WhopPaginatedResponse<T> {
-  data:       T[]
-  pagination: {
+interface WhopPaymentsResponse {
+  data:       WhopPayment[]
+  meta?: {
+    next_cursor?: string | null
+    has_more?:    boolean
+  } | null
+  pagination?: {
     current_page: number
     total_pages:  number
-    next_page?:   number | null
   } | null
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function decryptKey(enc: string): string {
   if (enc.startsWith('plain:')) return enc.slice(6)
   try {
     return decrypt(enc)
   } catch {
-    // Key was stored as plain text without encryption — use it directly
     return enc
   }
 }
 
-async function fetchAllMemberships(apiKey: string): Promise<WhopMembership[]> {
-  const all: WhopMembership[] = []
+async function fetchAllPayments(
+  apiKey: string,
+  companyId: string,
+): Promise<WhopPayment[]> {
+  const all: WhopPayment[] = []
   let page = 1
-  let totalPages = 1
+  let hasMore = true
 
-  do {
-    const res = await fetch(
-      `https://api.whop.com/api/v2/memberships?status=all&per_page=50&page=${page}`,
-      { headers: { Authorization: `Bearer ${apiKey}` } },
-    )
+  while (hasMore) {
+    const url = `https://api.whop.com/api/v1/payments?company_id=${encodeURIComponent(companyId)}&per_page=50&page=${page}`
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+
     if (!res.ok) {
-      console.error('[whop/sync] memberships fetch failed:', res.status)
+      console.error('[whop/sync] payments fetch failed:', res.status, await res.text())
       break
     }
-    const body = (await res.json()) as WhopPaginatedResponse<WhopMembership>
-    all.push(...(body.data ?? []))
-    totalPages = body.pagination?.total_pages ?? 1
+
+    const body = (await res.json()) as WhopPaymentsResponse
+    const batch = body.data ?? []
+    all.push(...batch)
+
+    // Support both cursor-based and page-based pagination
+    if (body.meta?.has_more === false || body.meta?.has_more == null && !body.meta?.next_cursor) {
+      hasMore = false
+    } else if (body.pagination) {
+      hasMore = page < (body.pagination.total_pages ?? 1)
+    } else if (batch.length < 50) {
+      hasMore = false
+    }
+
     page++
-  } while (page <= totalPages)
+  }
 
   return all
 }
@@ -91,10 +104,9 @@ export async function POST() {
     return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
   }
 
-  // Fetch creator's encrypted Whop key
   const { data: profile } = await admin
     .from('creator_profiles')
-    .select('whop_api_key_enc')
+    .select('whop_api_key_enc, whop_company_id')
     .eq('id', creatorId!)
     .maybeSingle()
 
@@ -102,23 +114,23 @@ export async function POST() {
     return NextResponse.json({ error: 'Whop not connected' }, { status: 422 })
   }
 
-  let apiKey: string
-  try {
-    apiKey = decryptKey(profile.whop_api_key_enc)
-  } catch {
-    return NextResponse.json({ error: 'Failed to decrypt Whop API key' }, { status: 500 })
+  if (!profile?.whop_company_id) {
+    return NextResponse.json({ error: 'Whop company ID not set' }, { status: 422 })
   }
 
-  // Fetch all memberships from Whop
-  const memberships = await fetchAllMemberships(apiKey)
+  const apiKey    = decryptKey(profile.whop_api_key_enc)
+  const companyId = profile.whop_company_id as string
 
-  // DEBUG — remove before shipping
-  return NextResponse.json({ debug: true, raw: memberships })
+  // Fetch payments and filter to paid only
+  const payments = await fetchAllPayments(apiKey, companyId)
+  const paid = payments.filter(
+    (p) => p.status === 'paid' || p.substatus === 'succeeded',
+  )
 
-  // Build email → lead_id map for matching
-  const emails = memberships
-    .map((m) => m.user?.email)
-    .filter(Boolean) as string[]
+  // Build email → lead_id map
+  const emails = [...new Set(
+    paid.map((p) => p.user?.email).filter(Boolean) as string[],
+  )]
 
   const { data: matchedLeads } = emails.length
     ? await admin
@@ -133,75 +145,31 @@ export async function POST() {
     if (lead.email) emailToLeadId.set(lead.email as string, lead.id as string)
   }
 
-  // Upsert products
-  const productsToUpsert = Array.from(
-    new Map(
-      memberships
-        .filter((m) => m.product?.id)
-        .map((m) => [m.product!.id, m.product!]),
-    ).values(),
-  )
+  // Upsert sales
+  let synced = 0
 
-  for (const wp of productsToUpsert) {
-    // Check if this Whop product is already linked
-    const { data: existing } = await admin
-      .from('products')
-      .select('id')
-      .eq('creator_id', creatorId!)
-      .eq('whop_product_id', wp.id)
-      .maybeSingle()
-
-    if (!existing) {
-      await admin.from('products').insert({
-        creator_id:      creatorId!,
-        name:            wp.name,
-        tier:            'ht',           // default — user can adjust
-        payment_type:    'recurring',
-        price:           0,              // filled in after
-        whop_product_id: wp.id,
-        active:          true,
-      })
-    }
-  }
-
-  // Upsert sales (one per membership)
-  let syncedCount = 0
-
-  for (const m of memberships) {
-    const amount = (m.price_cents ?? m.plan?.price_cents ?? 0) / 100
-    const email  = m.user?.email ?? null
-    const leadId = email ? (emailToLeadId.get(email) ?? null) : null
-
-    // Find matching product
-    const { data: matchedProduct } = m.product?.id
-      ? await admin
-          .from('products')
-          .select('id, name')
-          .eq('creator_id', creatorId!)
-          .eq('whop_product_id', m.product.id)
-          .maybeSingle()
-      : { data: null }
-
-    const saleDate = m.renewal_period_start
-      ? m.renewal_period_start.slice(0, 10)
-      : m.created_at.slice(0, 10)
+  for (const p of paid) {
+    const email     = p.user?.email ?? null
+    const leadId    = email ? (emailToLeadId.get(email) ?? null) : null
+    const amount    = ((p.final_amount ?? p.subtotal ?? 0)) / 100
+    const saleDate  = p.paid_at ? p.paid_at.slice(0, 10) : p.created_at.slice(0, 10)
 
     const { error } = await admin.from('sales').upsert(
       {
         creator_id:    creatorId!,
         lead_id:       leadId,
-        product_id:    matchedProduct?.id ?? null,
-        product_name:  matchedProduct?.name ?? m.product?.name ?? m.plan?.name ?? null,
+        product_name:  p.product?.title ?? null,
         amount,
         platform:      'whop',
-        payment_type:  m.interval ? 'recurring' : 'upfront',
+        payment_type:  'upfront',
         sale_date:     saleDate,
-        whop_sale_id:  m.id,
+        whop_sale_id:  p.id,
       },
       { onConflict: 'whop_sale_id', ignoreDuplicates: false },
     )
 
-    if (!error) syncedCount++
+    if (!error) synced++
+    else console.error('[whop/sync] upsert error for', p.id, error.message)
   }
 
   // Update last_synced_at
@@ -210,5 +178,5 @@ export async function POST() {
     .update({ whop_last_synced_at: new Date().toISOString() })
     .eq('id', creatorId!)
 
-  return NextResponse.json({ synced: syncedCount })
+  return NextResponse.json({ synced, total: paid.length })
 }

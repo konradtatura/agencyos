@@ -20,6 +20,7 @@ interface Props {
 
 export default function WhopSection({ connected: initialConnected, lastSyncedAt: initialSynced }: Props) {
   const [apiKey,     setApiKey]     = useState('')
+  const [companyId,  setCompanyId]  = useState('')
   const [connected,  setConnected]  = useState(initialConnected)
   const [lastSynced, setLastSynced] = useState(initialSynced)
   const [saving,     setSaving]     = useState(false)
@@ -35,6 +36,7 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
         if (data == null) return
         setConnected(!!data.connected)
         if (data.last_synced_at) setLastSynced(data.last_synced_at)
+        if (data.company_id)     setCompanyId(data.company_id)
       })
       .catch(() => { /* network failure — keep prop value */ })
   }, [])
@@ -46,6 +48,7 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
       const data = await r.json()
       setConnected(!!data.connected)
       if (data.last_synced_at) setLastSynced(data.last_synced_at)
+      if (data.company_id)     setCompanyId(data.company_id)
     } catch { /* ignore */ }
   }
 
@@ -57,12 +60,11 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
       const res = await fetch('/api/revenue/whop/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: apiKey.trim() }),
+        body: JSON.stringify({ api_key: apiKey.trim(), company_id: companyId.trim() || undefined }),
       })
       const json = await res.json()
       if (!res.ok) { setSaveErr(json.error ?? 'Save failed'); return }
-      // Re-fetch from server to confirm the key was persisted — don't rely on
-      // optimistic local state which can be wrong if the page remounts.
+      // Re-fetch from server to confirm the key was persisted.
       await refreshStatus()
       setApiKey('')
     } catch {
@@ -131,6 +133,12 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
                 )}
               </div>
 
+              {companyId && (
+                <p className="text-[12px] text-[#6b7280]">
+                  Company ID: <span className="font-mono text-[#9ca3af]">{companyId}</span>
+                </p>
+              )}
+
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleSync}
@@ -157,32 +165,38 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
           ) : (
             <div className="space-y-3">
               <p className="text-[12.5px] text-[#6b7280]">
-                Connect your Whop account to automatically sync memberships as sales.
+                Connect your Whop account to automatically sync payments as sales.
               </p>
 
-              <div className="flex items-center gap-2">
+              <div className="space-y-2">
                 <input
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="whop_sk_…"
-                  className="min-w-0 flex-1 rounded-lg px-3 py-2 text-[13px] text-[#f9fafb] placeholder-[#4b5563] outline-none focus:ring-1"
-                  style={{
-                    backgroundColor: '#1f2937',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    focusRingColor: '#7c3aed',
-                  }}
+                  placeholder="API key"
+                  className="w-full rounded-lg px-3 py-2 text-[13px] text-[#f9fafb] placeholder-[#4b5563] outline-none"
+                  style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.08)' }}
                   onKeyDown={(e) => e.key === 'Enter' && handleSave()}
                 />
-                <button
-                  onClick={handleSave}
-                  disabled={saving || !apiKey.trim()}
-                  className="shrink-0 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition-opacity disabled:opacity-40"
-                  style={{ backgroundColor: '#7c3aed' }}
-                >
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
+                <input
+                  type="text"
+                  value={companyId}
+                  onChange={(e) => setCompanyId(e.target.value)}
+                  placeholder="Company ID (biz_…)"
+                  className="w-full rounded-lg px-3 py-2 text-[13px] text-[#f9fafb] placeholder-[#4b5563] outline-none"
+                  style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.08)' }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+                />
               </div>
+
+              <button
+                onClick={handleSave}
+                disabled={saving || !apiKey.trim()}
+                className="rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition-opacity disabled:opacity-40"
+                style={{ backgroundColor: '#7c3aed' }}
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
 
               {saveErr && (
                 <p className="text-[12px] text-[#f87171]">{saveErr}</p>

@@ -20,13 +20,14 @@ export async function GET() {
 
   const { data: profile } = await admin
     .from('creator_profiles')
-    .select('whop_api_key_enc, whop_last_synced_at')
+    .select('whop_api_key_enc, whop_last_synced_at, whop_company_id')
     .eq('id', creatorId!)
     .maybeSingle()
 
   return NextResponse.json({
-    connected:     !!profile?.whop_api_key_enc,
+    connected:      !!profile?.whop_api_key_enc,
     last_synced_at: profile?.whop_last_synced_at ?? null,
+    company_id:     profile?.whop_company_id     ?? null,
   })
 }
 
@@ -41,8 +42,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
   }
 
-  const body = await req.json() as { api_key?: string }
-  const apiKey = body.api_key?.trim()
+  const body = await req.json() as { api_key?: string; company_id?: string }
+  const apiKey    = body.api_key?.trim()
+  const companyId = body.company_id?.trim() || null
 
   if (!apiKey) {
     return NextResponse.json({ error: 'api_key is required' }, { status: 400 })
@@ -52,15 +54,18 @@ export async function POST(req: Request) {
   let encrypted: string
   try {
     encrypted = encrypt(apiKey)
-  } catch (e) {
+  } catch {
     // ENCRYPTION_KEY not set — store as plaintext with warning prefix
     console.warn('[whop/connect] ENCRYPTION_KEY not set — storing API key unencrypted')
     encrypted = `plain:${apiKey}`
   }
 
+  const updates: Record<string, unknown> = { whop_api_key_enc: encrypted }
+  if (companyId !== null) updates.whop_company_id = companyId
+
   const { error: dbErr } = await admin
     .from('creator_profiles')
-    .update({ whop_api_key_enc: encrypted })
+    .update(updates)
     .eq('id', creatorId!)
 
   if (dbErr) {
