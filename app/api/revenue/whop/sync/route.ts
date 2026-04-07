@@ -49,7 +49,12 @@ interface WhopPaginatedResponse<T> {
 
 function decryptKey(enc: string): string {
   if (enc.startsWith('plain:')) return enc.slice(6)
-  return decrypt(enc)
+  try {
+    return decrypt(enc)
+  } catch {
+    // Key was stored as plain text without encryption — use it directly
+    return enc
+  }
 }
 
 async function fetchAllMemberships(apiKey: string): Promise<WhopMembership[]> {
