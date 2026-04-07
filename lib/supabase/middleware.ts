@@ -62,7 +62,15 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = path
     url.searchParams.delete('next')
-    return NextResponse.redirect(url)
+    const response = NextResponse.redirect(url)
+    // Copy the Set-Cookie headers (with all options) from supabaseResponse so
+    // the refreshed session tokens aren't lost when returning a redirect.
+    supabaseResponse.headers.forEach((value, key) => {
+      if (key.toLowerCase() === 'set-cookie') {
+        response.headers.append('set-cookie', value)
+      }
+    })
+    return response
   }
 
   // Bounce away from /login if already authenticated.
