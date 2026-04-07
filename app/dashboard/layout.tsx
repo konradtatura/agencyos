@@ -1,8 +1,11 @@
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import Sidebar from '@/components/nav/sidebar'
 import { isTokenExpired } from '@/lib/instagram/token'
 import { AlertTriangle } from 'lucide-react'
+import ImpersonationBanner from './impersonation-banner'
 
 export default async function DashboardLayout({
   children,
@@ -20,6 +23,27 @@ export default async function DashboardLayout({
   // them before this layout renders, but guard here too.
   if (role === 'setter') redirect('/setter/dms')
   if (role === 'closer') redirect('/closer/crm')
+
+  // ── Impersonation ──────────────────────────────────────────────────────────
+  let impersonatingId:   string | null = null
+  let impersonatingName: string | null = null
+
+  if (role === 'super_admin') {
+    const cookieStore = await cookies()
+    const impersonated = cookieStore.get('impersonating_creator_id')?.value
+    if (impersonated) {
+      impersonatingId = impersonated
+      try {
+        const admin = createAdminClient()
+        const { data: cp } = await admin
+          .from('creator_profiles')
+          .select('name')
+          .eq('id', impersonated)
+          .single()
+        impersonatingName = cp?.name ?? 'Unknown Creator'
+      } catch { /* silently ignore */ }
+    }
+  }
 
   // Fetch the creator profile for the sidebar header.
   // Gracefully falls back to null values if the DB isn't wired up yet.
@@ -57,6 +81,12 @@ export default async function DashboardLayout({
 
   return (
     <div>
+      {impersonatingId && impersonatingName && (
+        <ImpersonationBanner
+          creatorId={impersonatingId}
+          creatorName={impersonatingName}
+        />
+      )}
       <Sidebar
         variant="creator"
         user={{
@@ -73,6 +103,7 @@ export default async function DashboardLayout({
           minHeight:       '100vh',
           backgroundColor: '#0a0f1e',
           padding:         '32px',
+          paddingTop:      impersonatingId ? '72px' : '32px',
         }}
       >
         {igTokenExpiring && (

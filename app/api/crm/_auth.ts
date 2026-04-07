@@ -5,6 +5,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { Lead } from '@/types/crm'
@@ -43,6 +44,17 @@ export async function resolveCrmUser(): Promise<CrmUserResult> {
   const role = userRow?.role ?? 'creator'
 
   let creatorId: string | null = null
+
+  if (role === 'super_admin') {
+    // If a super_admin is impersonating a creator, use that creator's ID.
+    const cookieStore = await cookies()
+    const impersonated = cookieStore.get('impersonating_creator_id')?.value
+    if (impersonated) {
+      creatorId = impersonated
+      // Behave like a creator for data-scoping purposes
+      return { admin, userId: user.id, role: 'creator', creatorId }
+    }
+  }
 
   if (role === 'creator') {
     const { data: profile } = await admin
