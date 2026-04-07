@@ -98,14 +98,6 @@ function SkeletonKpi() {
   )
 }
 
-function SkeletonFunnelCard({ width }: { width: number }) {
-  return (
-    <div
-      className="rounded-2xl border border-white/[0.06] bg-[#0d1117] flex-shrink-0 animate-pulse"
-      style={{ width, minWidth: width, height: 152 }}
-    />
-  )
-}
 
 function SkeletonChart({ height = 180 }: { height?: number }) {
   return <div className={`rounded-xl bg-white/[0.02] animate-pulse`} style={{ height }} />
@@ -172,74 +164,116 @@ function KpiCard({ label, value, delta, icon, accent = '#2563eb', noTrend }: Kpi
   )
 }
 
-// ── Funnel Step Card ───────────────────────────────────────────────────────
+// ── Vertical Funnel ────────────────────────────────────────────────────────
 
-interface FunnelCardProps {
-  title: string
-  mainValue: string
-  subValue: string
-  icon: React.ReactNode
-  accentColor: string
-  width: number
+function truncate(s: string, max = 30): string {
+  if (s.length <= max) return s
+  // Break at last space before the limit
+  const cut = s.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut) + '…'
 }
 
-function FunnelCard({ title, mainValue, subValue, icon, accentColor, width }: FunnelCardProps) {
+interface FunnelRowProps {
+  title:       string
+  count:       number
+  maxCount:    number
+  barColor:    string
+  subValue?:   string
+  icon:        React.ReactNode
+  isLast?:     boolean
+}
+
+function FunnelRow({ title, count, maxCount, barColor, subValue, icon, isLast }: FunnelRowProps) {
+  const pct = maxCount > 0 ? Math.max(4, (count / maxCount) * 100) : 4
+  const displayTitle = truncate(title)
+  const needsTooltip = title.length > 30
+
   return (
-    <div
-      className="rounded-2xl border border-white/[0.08] bg-[#0d1117] flex flex-col flex-shrink-0"
-      style={{
-        width, minWidth: width, height: 152,
-        borderTopColor: accentColor, borderTopWidth: 2,
-      }}
-    >
-      <div className="p-4 flex flex-col h-full">
-        <div className="flex items-start justify-between mb-2">
-          <span className="text-[10px] font-medium uppercase tracking-widest text-white/35 leading-none pt-0.5 pr-2 line-clamp-2">
-            {title}
-          </span>
-          <div
-            className="w-6 h-6 rounded-md flex items-center justify-center shrink-0"
-            style={{ background: `${accentColor}18`, color: accentColor }}
-          >
-            {icon}
+    <div className="rounded-xl border border-white/[0.06] bg-[#0d1117] px-5 py-4">
+      <div className="flex items-center gap-4">
+        {/* Icon */}
+        <div
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+          style={{ background: `${barColor}18`, color: barColor }}
+        >
+          {icon}
+        </div>
+
+        {/* Name + bar */}
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex items-baseline gap-3">
+            <span
+              className="text-[13px] font-medium text-white/80"
+              title={needsTooltip ? title : undefined}
+            >
+              {displayTitle}
+            </span>
+            {subValue && (
+              <span className="text-[11px] text-white/30">{subValue}</span>
+            )}
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.04]">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${pct}%`, backgroundColor: barColor }}
+            />
           </div>
         </div>
 
-        <div className="font-mono text-[28px] font-bold text-white tabular-nums leading-none mt-1">
-          {mainValue}
-        </div>
-
-        <div className="mt-auto pt-2 border-t border-white/[0.05]">
-          <span className="text-[10px] text-white/30">{subValue}</span>
+        {/* Count */}
+        <div className="shrink-0 text-right">
+          <span
+            className="font-mono text-[22px] font-bold tabular-nums leading-none"
+            style={{ color: isLast ? barColor : '#f9fafb' }}
+          >
+            {count.toLocaleString()}
+          </span>
         </div>
       </div>
     </div>
   )
 }
 
-function FunnelArrow({ pct }: { pct: number | null }) {
+function FunnelConnector({ pct }: { pct: number | null }) {
   const color =
-    pct === null    ? 'rgba(255,255,255,0.12)'
-    : pct >= 50     ? '#10b981'
-    : pct >= 20     ? '#f59e0b'
-    :                 '#f87171'
+    pct === null  ? 'rgba(255,255,255,0.12)'
+    : pct >= 50   ? '#10b981'
+    : pct >= 20   ? '#f59e0b'
+    :               '#f87171'
 
   return (
-    <div className="flex flex-col items-center justify-center gap-1 shrink-0 w-10">
+    <div className="flex items-center gap-3 py-0.5 pl-[52px]">
+      {/* Vertical line */}
+      <div className="flex w-8 flex-col items-center">
+        <div className="h-5 w-px" style={{ backgroundColor: color, opacity: 0.4 }} />
+        <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden>
+          <path d="M6 0 L6 4 M3 2 L6 5 L9 2" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
       {pct !== null && (
-        <span className="text-[10px] font-bold tabular-nums font-mono leading-none" style={{ color }}>
-          {pct.toFixed(1)}%
+        <span
+          className="text-[11px] font-bold tabular-nums font-mono"
+          style={{ color }}
+        >
+          {pct.toFixed(1)}% →
         </span>
       )}
-      <svg width="24" height="10" viewBox="0 0 24 10" fill="none">
-        <path
-          d="M0 5 H18 M14 1.5 L18 5 L14 8.5"
-          stroke={color}
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+    </div>
+  )
+}
+
+function SkeletonFunnelRow() {
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-[#0d1117] px-5 py-4 animate-pulse">
+      <div className="flex items-center gap-4">
+        <div className="h-8 w-8 rounded-lg bg-white/[0.05]" />
+        <div className="flex-1 space-y-2">
+          <div className="h-3 w-32 rounded bg-white/[0.05]" />
+          <div className="h-2 w-full rounded-full bg-white/[0.04]" />
+        </div>
+        <div className="h-6 w-12 rounded bg-white/[0.05]" />
+      </div>
     </div>
   )
 }
@@ -320,12 +354,6 @@ export default function MetricsDashboard() {
     ? (prev.booked / prevTotalVisitors) * 100
     : 0
   const applyBookDelta   = pctDelta(applyBook, prevApplyBook)
-
-  // Funnel card widths: narrow from 190 → 130 across all steps
-  const totalCards = steps.length + 3
-  const MAX_W = 190, MIN_W = 130
-  const stepDelta = totalCards > 1 ? (MAX_W - MIN_W) / (totalCards - 1) : 0
-  const cardWidth = (i: number) => Math.max(MIN_W, Math.round(MAX_W - i * stepDelta))
 
   // CRM step definitions
   const lastPageUnique = steps.length > 0 ? steps[steps.length - 1].unique_views : 0
@@ -482,58 +510,64 @@ export default function MetricsDashboard() {
       <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
         <SectionHeader icon={<TrendingUp size={13} />} label="Conversion Funnel" />
 
-        <div className="overflow-x-auto pb-1">
-          <div className="flex items-center gap-0 min-w-max">
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center">
-                  <SkeletonFunnelCard width={cardWidth(i)} />
-                  {i < 4 && (
-                    <div className="w-10 flex items-center justify-center">
-                      <div className="h-px w-5 bg-white/[0.06] animate-pulse" />
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : steps.length === 0 && (crm?.booked ?? 0) === 0 ? (
-              <div className="h-[152px] flex items-center justify-center w-full text-white/20 text-sm">
+        {(() => {
+          // Build the full ordered list of rows for the vertical funnel
+          const pageStepColors = ['#2563eb', '#3b6fd4', '#4e7abf', '#5f83aa', '#6e8c96']
+          const maxCount = steps.length > 0 ? steps[0].unique_views : (crm?.booked ?? 0)
+
+          if (loading) {
+            return (
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => <SkeletonFunnelRow key={i} />)}
+              </div>
+            )
+          }
+
+          if (steps.length === 0 && (crm?.booked ?? 0) === 0) {
+            return (
+              <div className="flex h-32 items-center justify-center text-white/20 text-sm">
                 No funnel data for this period
               </div>
-            ) : (
-              <>
-                {steps.map((step, i) => (
-                  <div key={step.page_name} className="flex items-center">
-                    <FunnelCard
-                      width={cardWidth(i)}
-                      icon={<Eye size={12} />}
-                      title={capitalize(step.page_name)}
-                      mainValue={fmtNum(step.unique_views)}
-                      subValue={`${fmtNum(step.all_views)} total views`}
-                      accentColor="#2563eb"
-                    />
-                    <FunnelArrow
-                      pct={i < steps.length - 1 ? step.conversion_to_next : pageToBookedPct}
-                    />
-                  </div>
-                ))}
+            )
+          }
 
-                {crmSteps.map((step, i) => (
-                  <div key={step.key} className="flex items-center">
-                    <FunnelCard
-                      width={cardWidth(steps.length + i)}
-                      icon={step.icon}
-                      title={step.title}
-                      mainValue={fmtNum(step.count)}
-                      subValue={step.subLabel}
-                      accentColor={step.accentColor}
-                    />
-                    {i < crmSteps.length - 1 && <FunnelArrow pct={step.convNext} />}
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        </div>
+          return (
+            <div className="space-y-0">
+              {steps.map((step, i) => (
+                <div key={step.page_name}>
+                  <FunnelRow
+                    title={capitalize(step.page_name)}
+                    count={step.unique_views}
+                    maxCount={maxCount}
+                    barColor={pageStepColors[Math.min(i, pageStepColors.length - 1)]}
+                    subValue={`${fmtNum(step.all_views)} total views`}
+                    icon={<Eye size={13} />}
+                  />
+                  <FunnelConnector
+                    pct={i < steps.length - 1 ? step.conversion_to_next : pageToBookedPct}
+                  />
+                </div>
+              ))}
+
+              {crmSteps.map((step, i) => (
+                <div key={step.key}>
+                  <FunnelRow
+                    title={step.title}
+                    count={step.count}
+                    maxCount={maxCount}
+                    barColor={step.accentColor}
+                    subValue={step.subLabel}
+                    icon={step.icon}
+                    isLast={i === crmSteps.length - 1}
+                  />
+                  {i < crmSteps.length - 1 && (
+                    <FunnelConnector pct={step.convNext} />
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        })()}
       </div>
 
       {/* ── Section 3: Daily Trends ───────────────────────────────────────── */}

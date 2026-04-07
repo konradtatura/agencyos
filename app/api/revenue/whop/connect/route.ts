@@ -50,12 +50,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'api_key is required' }, { status: 400 })
   }
 
-  // Encrypt and store — key is validated implicitly on first sync
+  if (!creatorId) {
+    console.error('[whop/connect] creatorId is null — cannot save credentials')
+    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
+  }
+
+  // Encrypt key — fall back to plain prefix if ENCRYPTION_KEY not configured
   let encrypted: string
   try {
     encrypted = encrypt(apiKey)
   } catch {
-    // ENCRYPTION_KEY not set — store as plaintext with warning prefix
     console.warn('[whop/connect] ENCRYPTION_KEY not set — storing API key unencrypted')
     encrypted = `plain:${apiKey}`
   }
@@ -63,14 +67,26 @@ export async function POST(req: Request) {
   const updates: Record<string, unknown> = { whop_api_key_enc: encrypted }
   if (companyId !== null) updates.whop_company_id = companyId
 
-  const { error: dbErr } = await admin
+  console.log('[whop/connect] saving to creator_profiles id:', creatorId, 'company_id:', companyId)
+
+  const { data: updated, error: dbErr } = await admin
     .from('creator_profiles')
     .update(updates)
-    .eq('id', creatorId!)
+    .eq('id', creatorId)
+    .select('id, whop_company_id')
+    .maybeSingle()
 
   if (dbErr) {
+    console.error('[whop/connect] DB error:', dbErr.message, dbErr.details, dbErr.hint)
     return NextResponse.json({ error: dbErr.message }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true })
+  if (!updated) {
+    console.error('[whop/connect] update matched no rows for creator_profiles id:', creatorId)
+    return NextResponse.json({ error: 'Creator profile not found — update matched no rows' }, { status: 404 })
+  }
+
+  console.log('[whop/connect] saved successfully, row id:', updated.id)
+
+  return NextResponse.json({ success: true, company_id: updated.whop_company_id ?? companyId })
 }
