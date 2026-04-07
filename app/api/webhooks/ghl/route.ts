@@ -74,7 +74,7 @@ function extractTallyAnswers(body: GhlPayload): Record<string, string> | null {
   return Object.keys(answers).length ? answers : null
 }
 
-async function resolveCreatorId(
+async function resolveGhlCreatorId(
   supabase: ReturnType<typeof createAdminClient>,
   payloadLocationId: string | undefined,
 ): Promise<string | null> {
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
   const supabase = createAdminClient()
 
   // --- Resolve creator ---
-  const creatorId = await resolveCreatorId(supabase, body.location_id)
+  const creatorId = await resolveGhlCreatorId(supabase, body.location_id)
   if (!creatorId) {
     console.error('[ghl-webhook] could not resolve creator_id — set GHL_DEFAULT_CREATOR_ID or GHL_LOCATION_ID')
     return NextResponse.json({ error: 'Creator not found' }, { status: 422 })

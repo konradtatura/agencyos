@@ -6,7 +6,8 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '../../../crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { decrypt } from '@/lib/crypto'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -97,18 +98,14 @@ async function fetchAllPayments(
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function POST() {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (!creatorId && role !== 'super_admin') {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const { data: profile } = await admin
     .from('creator_profiles')
     .select('whop_api_key_enc, whop_company_id')
-    .eq('id', creatorId!)
+    .eq('id', creatorId)
     .maybeSingle()
 
   if (!profile?.whop_api_key_enc) {
@@ -137,7 +134,7 @@ export async function POST() {
     ? await admin
         .from('leads')
         .select('id, email')
-        .eq('creator_id', creatorId!)
+        .eq('creator_id', creatorId)
         .in('email', emails)
     : { data: [] }
 
@@ -158,7 +155,7 @@ export async function POST() {
 
     const { error } = await admin.from('sales').upsert(
       {
-        creator_id:    creatorId!,
+        creator_id:    creatorId,
         lead_id:       leadId,
         product_name:  p.product?.title ?? null,
         amount,
@@ -179,7 +176,7 @@ export async function POST() {
   await admin
     .from('creator_profiles')
     .update({ whop_last_synced_at: new Date().toISOString() })
-    .eq('id', creatorId!)
+    .eq('id', creatorId)
 
   return NextResponse.json({ synced, total: paid.length })
 }

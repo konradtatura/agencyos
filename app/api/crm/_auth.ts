@@ -5,9 +5,9 @@
  */
 
 import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getCreatorId } from '@/lib/get-creator-id'
 import type { Lead } from '@/types/crm'
 
 export type CrmUser = {
@@ -43,31 +43,18 @@ export async function resolveCrmUser(): Promise<CrmUserResult> {
 
   const role = userRow?.role ?? 'creator'
 
-  let creatorId: string | null = null
+  // Resolve creator ID via shared helper — reads the impersonation header set by
+  // middleware, so no cookie access is needed here.
+  const creatorId = await getCreatorId()
 
-  if (role === 'super_admin') {
-    // If a super_admin is impersonating a creator, use that creator's ID.
-    const cookieStore = await cookies()
-    const impersonated = cookieStore.get('impersonating_creator_id')?.value
-    if (impersonated) {
-      creatorId = impersonated
-      // Behave like a creator for data-scoping purposes
-      return { admin, userId: user.id, role: 'creator', creatorId }
-    }
+  // If super_admin is impersonating, behave like that creator for data-scoping
+  if (role === 'super_admin' && creatorId) {
+    return { admin, userId: user.id, role: 'creator', creatorId }
   }
 
-  if (role === 'creator') {
-    const { data: profile } = await admin
-      .from('creator_profiles')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!profile) {
-      return { error: NextResponse.json({ error: 'Creator profile not found' }, { status: 404 }) }
-    }
-
-    creatorId = profile.id as string
+  // Regular creator must have a profile
+  if (role === 'creator' && !creatorId) {
+    return { error: NextResponse.json({ error: 'Creator profile not found' }, { status: 404 }) }
   }
 
   return { admin, userId: user.id, role, creatorId }

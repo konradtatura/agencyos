@@ -18,15 +18,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 // ── GET — list groups ─────────────────────────────────────────────────────────
 
 export async function GET() {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { admin, creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const { data: groups, error } = await admin
     .from('reel_groups')
@@ -42,10 +42,9 @@ export async function GET() {
 // ── POST — mutate groups ──────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { admin, creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const body = await req.json() as Record<string, unknown>
   const action = body.action as string | undefined

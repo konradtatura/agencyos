@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
 
 export async function GET() {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { admin, creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   // Check integration status + username
   const { data: integration } = await admin

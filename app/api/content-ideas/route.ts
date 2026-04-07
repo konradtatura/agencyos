@@ -1,28 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { ContentIdeaInsert } from '@/lib/content-pipeline/types'
-
-// ---------------------------------------------------------------------------
-// Auth helper — resolves the caller's creator_id (supports impersonation)
-// ---------------------------------------------------------------------------
-async function resolveCreatorId(): Promise<
-  { creatorId: string; admin: ReturnType<typeof import('@/lib/supabase/admin').createAdminClient> } | { error: NextResponse }
-> {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return { error: auth.error }
-  const { admin, creatorId } = auth
-  if (!creatorId) return { error: NextResponse.json({ error: 'Creator profile not found' }, { status: 404 }) }
-  return { creatorId, admin }
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/content-ideas
 // ---------------------------------------------------------------------------
 export async function GET() {
-  const result = await resolveCreatorId()
-  if ('error' in result) return result.error
-
-  const { creatorId, admin } = result
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const { data, error } = await admin
     .from('content_ideas')
@@ -41,10 +28,9 @@ export async function GET() {
 // POST /api/content-ideas
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
-  const result = await resolveCreatorId()
-  if ('error' in result) return result.error
-
-  const { creatorId, admin } = result
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   let body: ContentIdeaInsert
   try {

@@ -5,7 +5,8 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '../../crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { RevenueSummary } from '@/types/revenue'
 
 function dateFrom(range: string | null): string | null {
@@ -26,13 +27,9 @@ function fmtMonth(dateStr: string): string {
 }
 
 export async function GET(req: Request) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (!creatorId && role !== 'super_admin') {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const { searchParams } = new URL(req.url)
   const range    = searchParams.get('range') ?? '30d'
@@ -43,7 +40,7 @@ export async function GET(req: Request) {
   let query = (admin as any)
     .from('sales')
     .select('amount, payment_type, sale_date, platform, lead_source_type, closer_id, product_id, product:products(tier), closer:users(full_name)')
-    .eq('creator_id', creatorId!)
+    .eq('creator_id', creatorId)
 
   if (fromDate) query = query.gte('sale_date', fromDate)
 

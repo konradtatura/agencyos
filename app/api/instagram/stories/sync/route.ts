@@ -6,14 +6,12 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
 import { syncStories } from '@/lib/instagram/sync-stories'
 
 export async function POST() {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const outcome = await syncStories(creatorId)
 

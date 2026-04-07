@@ -5,21 +5,13 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '../../../crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function GET() {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (!creatorId && role !== 'super_admin') {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
-
-  if (!creatorId) {
-    console.error('[whop/status] creatorId is null')
-    return NextResponse.json({ connected: false, last_synced: null, company_id: null })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const { data: profile, error: dbErr } = await admin
     .from('creator_profiles')

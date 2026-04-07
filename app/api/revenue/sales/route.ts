@@ -4,7 +4,8 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '../../crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { Sale } from '@/types/revenue'
 
 function dateRangeFrom(range: string | null): string | null {
@@ -29,13 +30,9 @@ function dateRangeFrom(range: string | null): string | null {
 // ── GET ───────────────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (!creatorId && role !== 'super_admin') {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const { searchParams } = new URL(req.url)
   const range    = searchParams.get('range')
@@ -46,7 +43,7 @@ export async function GET(req: Request) {
   let query = (admin as any)
     .from('sales')
     .select('*, product:products(tier, name), closer:users(full_name)')
-    .eq('creator_id', creatorId!)
+    .eq('creator_id', creatorId)
     .order('sale_date', { ascending: false })
 
   const fromDate = dateRangeFrom(range)
@@ -70,18 +67,9 @@ export async function GET(req: Request) {
 // ── POST ──────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (!creatorId && role !== 'super_admin') {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
-
-  // Only creator and super_admin can create manual sales
-  if (role === 'setter' || role === 'closer') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const body = await req.json() as {
     product_id?:       string
@@ -119,7 +107,7 @@ export async function POST(req: Request) {
   const { data: sale, error } = await admin
     .from('sales')
     .insert({
-      creator_id:       creatorId!,
+      creator_id:       creatorId,
       lead_id:          body.lead_id          ?? null,
       product_id:       body.product_id       ?? null,
       product_name:     productName,

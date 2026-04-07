@@ -6,17 +6,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 interface Params {
   params: { formId: string }
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { admin, creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   // Fetch form by id — no creator_id filter so that newly-assigned forms and
   // forms with partial creator_id data still resolve.  Access is implicitly

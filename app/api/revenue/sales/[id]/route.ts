@@ -4,18 +4,15 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '../../../crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 interface Params { params: { id: string } }
 
 export async function PATCH(req: Request, { params }: Params) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (role === 'setter' || role === 'closer') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const body = await req.json() as Record<string, unknown>
 
@@ -32,7 +29,7 @@ export async function PATCH(req: Request, { params }: Params) {
     .from('sales')
     .update(updates)
     .eq('id', params.id)
-    .eq('creator_id', creatorId!)
+    .eq('creator_id', creatorId)
     .select('*')
     .single()
 
@@ -43,19 +40,15 @@ export async function PATCH(req: Request, { params }: Params) {
 }
 
 export async function DELETE(_req: Request, { params }: Params) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (role === 'setter' || role === 'closer') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const { error } = await admin
     .from('sales')
     .delete()
     .eq('id', params.id)
-    .eq('creator_id', creatorId!)
+    .eq('creator_id', creatorId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

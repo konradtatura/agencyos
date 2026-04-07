@@ -1,21 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { ContentIdeaUpdate } from '@/lib/content-pipeline/types'
 
 // ---------------------------------------------------------------------------
-// Auth helper — resolves the caller's creator_id and verifies idea ownership
+// Auth helper — resolves creator and verifies idea ownership
 // ---------------------------------------------------------------------------
 async function resolveIdeaAccess(ideaId: string): Promise<
   | { admin: ReturnType<typeof import('@/lib/supabase/admin').createAdminClient>; creatorId: string }
   | { error: NextResponse }
 > {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return { error: auth.error }
-  const { admin, creatorId } = auth
+  const creatorId = await getCreatorId()
+  if (!creatorId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
 
-  if (!creatorId) {
-    return { error: NextResponse.json({ error: 'Creator profile not found' }, { status: 404 }) }
-  }
+  const admin = createAdminClient()
 
   // Verify the idea belongs to this creator
   const { data: idea } = await admin

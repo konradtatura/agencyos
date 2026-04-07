@@ -9,17 +9,17 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export type ManualMetricField = 'avg_watch_time_ms'
 
 const ALLOWED_FIELDS: ManualMetricField[] = ['avg_watch_time_ms']
 
 export async function PATCH(req: Request) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { admin, creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'No creator profile' }, { status: 403 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const body = await req.json() as { post_id?: string; field?: string; value?: unknown }
   const { post_id, field, value } = body

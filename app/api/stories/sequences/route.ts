@@ -21,7 +21,8 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const VALID_CTA_TYPES = ['dm', 'link', 'poll', 'reply', 'none'] as const
 type CtaType = typeof VALID_CTA_TYPES[number]
@@ -34,10 +35,9 @@ interface SlideInput {
 
 export async function POST(req: Request) {
   // ── Auth ─────────────────────────────────────────────────────────────────────
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { admin, creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   // ── Parse & validate body ─────────────────────────────────────────────────────
   const body = await req.json() as { name?: string; cta_type?: string; slides?: SlideInput[] }

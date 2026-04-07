@@ -4,24 +4,21 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '../../../crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { encrypt } from '@/lib/crypto'
 
 // ── GET — connection status ───────────────────────────────────────────────────
 
 export async function GET() {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (!creatorId && role !== 'super_admin') {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const { data: profile } = await admin
     .from('creator_profiles')
     .select('whop_api_key_enc, whop_last_synced_at, whop_company_id')
-    .eq('id', creatorId!)
+    .eq('id', creatorId)
     .maybeSingle()
 
   return NextResponse.json({
@@ -34,13 +31,9 @@ export async function GET() {
 // ── POST — validate + store key ───────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (!creatorId && role !== 'super_admin') {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const body = await req.json() as { api_key?: string; company_id?: string }
   const apiKey    = body.api_key?.trim()
@@ -48,11 +41,6 @@ export async function POST(req: Request) {
 
   if (!apiKey) {
     return NextResponse.json({ error: 'api_key is required' }, { status: 400 })
-  }
-
-  if (!creatorId) {
-    console.error('[whop/connect] creatorId is null — cannot save credentials')
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
   }
 
   // Encrypt key — fall back to plain prefix if ENCRYPTION_KEY not configured

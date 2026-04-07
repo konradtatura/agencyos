@@ -6,14 +6,14 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { TRANSCRIPTION_DAILY_LIMIT } from '@/lib/instagram/transcription-limits'
 
 export async function GET() {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { admin, creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'No creator profile' }, { status: 403 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const today = new Date().toISOString().split('T')[0]
 

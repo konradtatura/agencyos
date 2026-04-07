@@ -110,5 +110,23 @@ export async function updateSession(request: NextRequest) {
   //   if (complete && pathname.startsWith('/onboarding'))  return redirect('/dashboard')
   // }
 
+  // Inject impersonation header so API routes and server components can read it
+  // via getCreatorId() without touching cookies themselves.
+  if (role === 'super_admin') {
+    const impersonatingId = request.cookies.get('impersonating_creator_id')?.value
+    if (impersonatingId) {
+      const requestHeaders = new Headers(request.headers)
+      requestHeaders.set('x-impersonating-creator-id', impersonatingId)
+      const newResponse = NextResponse.next({ request: { headers: requestHeaders } })
+      // Carry over any Set-Cookie headers Supabase wrote (refreshed tokens)
+      supabaseResponse.headers.forEach((value, key) => {
+        if (key.toLowerCase() === 'set-cookie') {
+          newResponse.headers.append('set-cookie', value)
+        }
+      })
+      return newResponse
+    }
+  }
+
   return supabaseResponse
 }

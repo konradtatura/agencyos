@@ -8,20 +8,17 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const VALID_CTA_TYPES = ['dm', 'link', 'poll', 'reply', 'none'] as const
 
 // ── Shared: auth + creator resolution + ownership check ──────────────────────
 
 async function resolveCreatorAndVerifySequence(sequenceId: string) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return { error: auth.error }
-  const { admin, creatorId } = auth
-
-  if (!creatorId) {
-    return { error: NextResponse.json({ error: 'Creator profile not found' }, { status: 404 }) }
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  const admin = createAdminClient()
 
   // Confirm the sequence belongs to this creator
   const { data: seq } = await admin

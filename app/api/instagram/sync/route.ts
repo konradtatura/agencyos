@@ -1,14 +1,12 @@
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
 import { triggerFullSync } from '@/lib/instagram/sync'
 
 // ── POST /api/instagram/sync ──────────────────────────────────────────────────
 
 export async function POST() {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const result = await triggerFullSync(creatorId)
   return NextResponse.json(result, { status: result.success ? 200 : 500 })

@@ -4,22 +4,19 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '../../crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { Product } from '@/types/revenue'
 
 export async function GET() {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (!creatorId && role !== 'super_admin') {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const { data, error } = await admin
     .from('products')
     .select('*')
-    .eq('creator_id', creatorId!)
+    .eq('creator_id', creatorId)
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -28,13 +25,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-
-  const { admin, creatorId, role } = auth
-  if (role === 'setter' || role === 'closer') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   const body = await req.json() as {
     name?:            string
@@ -57,7 +50,7 @@ export async function POST(req: Request) {
   const { data, error } = await admin
     .from('products')
     .insert({
-      creator_id:      creatorId!,
+      creator_id:      creatorId,
       name:            body.name.trim(),
       tier:            body.tier,
       payment_type:    body.payment_type,

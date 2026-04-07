@@ -16,16 +16,16 @@
  */
 
 import { NextResponse } from 'next/server'
-import { resolveCrmUser } from '@/app/api/crm/_auth'
+import { getCreatorId } from '@/lib/get-creator-id'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { transcribeReel } from '@/lib/transcription/whisper'
 import { TRANSCRIPTION_DAILY_LIMIT } from '@/lib/instagram/transcription-limits'
 
 export async function POST(request: Request) {
   // ── 1. Auth ─────────────────────────────────────────────────────────────────
-  const auth = await resolveCrmUser()
-  if ('error' in auth) return auth.error
-  const { admin, creatorId } = auth
-  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
+  const creatorId = await getCreatorId()
+  if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const admin = createAdminClient()
 
   // ── Parse body ──────────────────────────────────────────────────────────────
   let body: { postId?: unknown }
