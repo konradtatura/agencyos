@@ -107,6 +107,9 @@ export async function POST() {
   // Fetch all memberships from Whop
   const memberships = await fetchAllMemberships(apiKey)
 
+  // DEBUG — remove before shipping
+  return NextResponse.json({ debug: true, raw: memberships })
+
   // Build email → lead_id map for matching
   const emails = memberships
     .map((m) => m.user?.email)

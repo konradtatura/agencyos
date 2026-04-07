@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
-  ResponsiveContainer, LabelList,
+  ResponsiveContainer, LabelList, ReferenceLine,
   LineChart, Line, Legend,
   PieChart, Pie, Label,
 } from 'recharts'
@@ -373,18 +373,23 @@ function ChartTitle({ children }: { children: React.ReactNode }) {
 // Block 1 — stat cards
 
 interface StatCardProps {
-  label:     string
-  value:     string
+  label:      string
+  value:      string
   highlight?: boolean
+  valueColor?: string
+  sub?:       string
+  tooltip?:   string
 }
 
-function StatCard({ label, value, highlight }: StatCardProps) {
+function StatCard({ label, value, highlight, valueColor, sub, tooltip }: StatCardProps) {
   return (
     <div
+      title={tooltip}
       className="flex flex-col gap-1.5 rounded-xl px-4 py-3"
       style={{
         backgroundColor: highlight ? 'rgba(37,99,235,0.08)' : 'rgba(255,255,255,0.03)',
         border: `1px solid ${highlight ? 'rgba(37,99,235,0.25)' : 'rgba(255,255,255,0.06)'}`,
+        cursor: tooltip ? 'help' : undefined,
       }}
     >
       <p className="text-[10.5px] font-semibold uppercase tracking-wider" style={{ color: highlight ? '#60a5fa' : '#6b7280' }}>
@@ -392,10 +397,13 @@ function StatCard({ label, value, highlight }: StatCardProps) {
       </p>
       <p
         className="text-[22px] font-bold leading-none"
-        style={{ fontFamily: 'var(--font-mono)', color: highlight ? '#93c5fd' : '#f9fafb' }}
+        style={{ fontFamily: 'var(--font-mono)', color: valueColor ?? (highlight ? '#93c5fd' : '#f9fafb') }}
       >
         {value}
       </p>
+      {sub && (
+        <p className="text-[11px] leading-none text-[#6b7280]">{sub}</p>
+      )}
     </div>
   )
 }
@@ -461,9 +469,24 @@ function DropoffChart({ slides }: { slides: SlideDetail[] }) {
               <Cell key={i} fill={entry.is_cta ? '#2563eb' : '#1e3a5f'} />
             ))}
           </Bar>
+          {data.length >= 2 && (
+            <ReferenceLine
+              x="Slide 2"
+              stroke="#ef4444"
+              strokeDasharray="4 3"
+              strokeWidth={1.5}
+              label={{
+                value: 'Hook drop-off',
+                position: 'insideTopLeft',
+                fill: '#ef4444',
+                fontSize: 10,
+                fontWeight: 600,
+              }}
+            />
+          )}
         </BarChart>
       </ResponsiveContainer>
-      <p className="mt-1 text-[10.5px] text-[#4b5563]">Blue bar = CTA slide</p>
+      <p className="mt-1 text-[10.5px] text-[#4b5563]">Blue bar = CTA slide · Red dashed line = hook retention point</p>
     </div>
   )
 }
@@ -784,6 +807,225 @@ function SlideTable({ slides }: { slides: SlideDetail[] }) {
   )
 }
 
+// ── Block 7 — Revenue Attribution ────────────────────────────────────────────
+
+interface LeadRow {
+  id:               string
+  name:             string
+  stage:            string
+  lead_source_type: string | null
+  lead_source_id:   string | null
+}
+
+interface AttributedSale {
+  id:           string
+  lead_id:      string | null
+  product_name: string | null
+  amount:       number
+  sale_date:    string
+  closer_id:    string | null
+  closer?:      { full_name: string | null } | null
+}
+
+const CALL_STAGES = new Set(['call_booked', 'showed', 'closed_won', 'closed_lost', 'no_show'])
+
+function fmtUSD(n: number) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+}
+
+function FunnelStep({
+  label, count, sub, accent,
+}: {
+  label: string; count: string; sub?: string; accent?: string
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1 min-w-0">
+      <p
+        className="text-[22px] font-bold leading-none"
+        style={{ fontFamily: 'var(--font-mono)', color: accent ?? '#f9fafb' }}
+      >
+        {count}
+      </p>
+      <p className="text-[11px] font-semibold text-[#9ca3af]">{label}</p>
+      {sub && <p className="text-[10px] text-[#4b5563]">{sub}</p>}
+    </div>
+  )
+}
+
+function FunnelArrow() {
+  return (
+    <div className="flex shrink-0 items-center text-[#374151]">
+      <svg width="20" height="16" viewBox="0 0 20 16" fill="none" aria-hidden>
+        <path d="M0 8h16M11 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  )
+}
+
+function RevenueAttribution({
+  sequenceId, correlatedDms,
+}: {
+  sequenceId:    string
+  correlatedDms: number
+}) {
+  const [leads,   setLeads]   = useState<LeadRow[]>([])
+  const [sales,   setSales]   = useState<AttributedSale[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        // Fetch all leads then filter client-side (backend doesn't yet support these filter params)
+        const leadsRes = await fetch('/api/crm/leads')
+        const allLeads: LeadRow[] = leadsRes.ok ? await leadsRes.json() : []
+        const filtered = allLeads.filter(
+          (l) => l.lead_source_type === 'story' && l.lead_source_id === sequenceId,
+        )
+
+        // Fetch sales — gracefully handle 404 (route not deployed yet)
+        let allSales: AttributedSale[] = []
+        try {
+          const salesRes = await fetch('/api/revenue/sales?range=all')
+          if (salesRes.ok) allSales = await salesRes.json()
+        } catch {
+          // Revenue module not available
+        }
+
+        if (!cancelled) {
+          setLeads(filtered)
+          const leadIds = new Set(filtered.map((l) => l.id))
+          setSales(allSales.filter((s) => s.lead_id && leadIds.has(s.lead_id)))
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [sequenceId])
+
+  const leadsCount    = leads.length
+  const callsBooked   = leads.filter((l) => CALL_STAGES.has(l.stage)).length
+  const closedWon     = leads.filter((l) => l.stage === 'closed_won').length
+  const revenue       = sales.reduce((s, sale) => s + Number(sale.amount), 0)
+
+  function convPct(num: number, den: number) {
+    if (den === 0) return null
+    return `${Math.round((num / den) * 100)}%`
+  }
+
+  const dmToLead   = convPct(leadsCount,  correlatedDms)
+  const leadToCall = convPct(callsBooked, leadsCount)
+  const callToWon  = convPct(closedWon,   callsBooked)
+
+  return (
+    <div>
+      <ChartTitle>Revenue Attribution</ChartTitle>
+
+      {loading ? (
+        <div className="h-16 animate-pulse rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }} />
+      ) : (
+        <div className="space-y-5">
+          {/* Mini funnel */}
+          <div
+            className="flex items-center justify-between gap-2 rounded-xl px-6 py-5"
+            style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <FunnelStep
+              label="Correlated DMs"
+              count={String(correlatedDms)}
+            />
+            <FunnelArrow />
+            <FunnelStep
+              label="Leads Created"
+              count={String(leadsCount)}
+              sub={dmToLead ? `${dmToLead} of DMs` : undefined}
+            />
+            <FunnelArrow />
+            <FunnelStep
+              label="Calls Booked"
+              count={String(callsBooked)}
+              sub={leadToCall ? `${leadToCall} of leads` : undefined}
+            />
+            <FunnelArrow />
+            <FunnelStep
+              label="Closed Won"
+              count={String(closedWon)}
+              sub={callToWon ? `${callToWon} close rate` : undefined}
+              accent={closedWon > 0 ? '#10b981' : undefined}
+            />
+            <FunnelArrow />
+            <FunnelStep
+              label="Revenue"
+              count={sales.length > 0 ? fmtUSD(revenue) : '—'}
+              accent={revenue > 0 ? '#10b981' : undefined}
+            />
+          </div>
+
+          {/* Attributed sales table */}
+          {sales.length === 0 ? (
+            <p className="text-[12px] text-[#4b5563]">
+              No closed deals attributed to this sequence yet — leads are matched when{' '}
+              <span className="font-mono">lead_source_type = story</span> and{' '}
+              <span className="font-mono">lead_source_id</span> matches this sequence.
+            </p>
+          ) : (
+            <div className="overflow-hidden rounded-xl" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', backgroundColor: '#0d1117' }}>
+                    {['Lead', 'Sale Date', 'Product', 'Amount', 'Closer'].map((h) => (
+                      <th
+                        key={h}
+                        className="px-4 py-2.5 text-left text-[10.5px] font-semibold uppercase tracking-wider text-[#6b7280]"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sales.map((sale) => {
+                    const lead = leads.find((l) => l.id === sale.lead_id)
+                    return (
+                      <tr
+                        key={sale.id}
+                        style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                        className="hover:bg-white/[0.02] transition-colors"
+                      >
+                        <td className="px-4 py-2.5">
+                          {lead ? (
+                            <a
+                              href={`/dashboard/crm/${lead.id}`}
+                              className="text-[#60a5fa] hover:underline"
+                            >
+                              {lead.name}
+                            </a>
+                          ) : (
+                            <span className="text-[#6b7280]">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-[#9ca3af]">
+                          {new Date(sale.sale_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </td>
+                        <td className="px-4 py-2.5 text-[#d1d5db]">{sale.product_name ?? '—'}</td>
+                        <td className="px-4 py-2.5 font-semibold text-[#10b981]">{fmtUSD(sale.amount)}</td>
+                        <td className="px-4 py-2.5 text-[#6b7280]">{sale.closer?.full_name ?? '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Sequence accordion item ────────────────────────────────────────────────────
 
 function SequenceAccordionItem({
@@ -876,6 +1118,20 @@ function SequenceAccordionItem({
     firstImpr != null && ctaImpr != null && firstImpr > 0
       ? (ctaImpr / firstImpr) * 100
       : null
+
+  const secondSlide     = slides[1]
+  const secondImpr      = secondSlide?.story?.impressions ?? null
+  const hookRetention   =
+    firstImpr != null && firstImpr > 0 && secondImpr != null
+      ? (secondImpr / firstImpr) * 100
+      : null
+  const hookDrop        =
+    firstImpr != null && secondImpr != null ? secondImpr - firstImpr : null
+  const hookColor =
+    hookRetention == null ? '#f9fafb'
+      : hookRetention >= 80 ? '#10b981'
+      : hookRetention >= 60 ? '#f59e0b'
+      : '#ef4444'
 
   return (
     <div
@@ -1078,11 +1334,18 @@ function SequenceAccordionItem({
 
           {detail && !loading && (
             <>
-              {/* Block 1 — 5 stat cards */}
-              <div className="grid grid-cols-5 gap-3">
+              {/* Block 1 — 6 stat cards */}
+              <div className="grid grid-cols-6 gap-3">
                 <StatCard
                   label="First Impressions"
                   value={fmtNum(firstImpr)}
+                />
+                <StatCard
+                  label="Hook Retention"
+                  value={hookRetention != null ? `${hookRetention.toFixed(1)}%` : '—'}
+                  valueColor={hookColor}
+                  sub={hookDrop != null ? `${hookDrop > 0 ? '+' : ''}${hookDrop} viewers` : undefined}
+                  tooltip="% of slide 1 viewers who stayed to slide 2. Below 70% means your hook needs work."
                 />
                 <StatCard
                   label="Made it to CTA"
@@ -1137,6 +1400,17 @@ function SequenceAccordionItem({
 
               {/* Block 6 — Slide breakdown table */}
               <SlideTable slides={slides} />
+
+              {/* Block 7 — Revenue attribution */}
+              <div
+                className="rounded-xl p-5"
+                style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}
+              >
+                <RevenueAttribution
+                  sequenceId={seq.id}
+                  correlatedDms={detail.correlated_dm_count}
+                />
+              </div>
             </>
           )}
         </div>
