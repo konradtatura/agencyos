@@ -48,14 +48,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'api_key is required' }, { status: 400 })
   }
 
-  // Validate with Whop API
-  const whopRes = await fetch('https://api.whop.com/api/v2/me', {
+  // Validate with Whop API — 401 means bad key, anything else (200, 403, …) means key is recognised
+  const whopRes = await fetch('https://api.whop.com/api/v1/memberships', {
     headers: { Authorization: `Bearer ${apiKey}` },
   }).catch(() => null)
 
-  if (!whopRes || !whopRes.ok) {
+  if (!whopRes) {
+    return NextResponse.json({ error: 'Could not reach Whop API' }, { status: 502 })
+  }
+
+  if (whopRes.status === 401) {
     return NextResponse.json(
-      { error: 'Invalid Whop API key — could not authenticate with Whop.' },
+      { error: 'Invalid Whop API key — authentication rejected by Whop.' },
       { status: 422 },
     )
   }

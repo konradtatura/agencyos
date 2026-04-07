@@ -676,6 +676,18 @@ function SkipRewindChart({ slides }: { slides: SlideDetail[] }) {
 // Block 6 — slide breakdown table
 
 function SlideTable({ slides }: { slides: SlideDetail[] }) {
+  const hasTapsFwd  = slides.some((sl) => sl.story?.taps_forward != null)
+  const hasTapsBack = slides.some((sl) => sl.story?.taps_back    != null)
+  const hasExits    = slides.some((sl) => sl.story?.exits        != null)
+
+  const headers = [
+    '#', 'Thumb', 'Impressions', 'Reach',
+    ...(hasTapsFwd  ? ['Taps Fwd']  : []),
+    ...(hasTapsBack ? ['Taps Back'] : []),
+    ...(hasExits    ? ['Exits']     : []),
+    'Exit Rate', 'Replies',
+  ]
+
   return (
     <div>
       <ChartTitle>Slide Breakdown</ChartTitle>
@@ -687,17 +699,15 @@ function SlideTable({ slides }: { slides: SlideDetail[] }) {
           <table className="w-full border-separate border-spacing-0 text-[12px]">
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                {['#', 'Thumb', 'Impressions', 'Reach', 'Taps Fwd', 'Taps Back', 'Exits', 'Exit Rate', 'Replies'].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="whitespace-nowrap px-3 py-2.5 text-left text-[10.5px] font-semibold uppercase tracking-wider text-[#6b7280]"
-                      style={{ backgroundColor: '#0d1117' }}
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
+                {headers.map((h) => (
+                  <th
+                    key={h}
+                    className="whitespace-nowrap px-3 py-2.5 text-left text-[10.5px] font-semibold uppercase tracking-wider text-[#6b7280]"
+                    style={{ backgroundColor: '#0d1117' }}
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -755,9 +765,9 @@ function SlideTable({ slides }: { slides: SlideDetail[] }) {
                     </td>
                     <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtNum(s?.impressions)}</td>
                     <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtNum(s?.reach)}</td>
-                    <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtNum(s?.taps_forward)}</td>
-                    <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtNum(s?.taps_back)}</td>
-                    <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtNum(s?.exits)}</td>
+                    {hasTapsFwd  && <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtNum(s?.taps_forward)}</td>}
+                    {hasTapsBack && <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtNum(s?.taps_back)}</td>}
+                    {hasExits    && <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtNum(s?.exits)}</td>}
                     <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtPct(exitRate)}</td>
                     <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{fmtNum(s?.replies)}</td>
                   </tr>
@@ -767,6 +777,9 @@ function SlideTable({ slides }: { slides: SlideDetail[] }) {
           </table>
         </div>
       </div>
+      <p className="mt-2 text-[11px] text-[#4b5563]">
+        Some metrics only available while stories are live (within 24h of posting).
+      </p>
     </div>
   )
 }
