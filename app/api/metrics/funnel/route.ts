@@ -130,6 +130,8 @@ export async function GET(req: NextRequest) {
     creatorId = member?.creator_id ?? null
   }
 
+  console.log('[funnel] resolved creatorId:', creatorId, 'role:', role, 'userId:', userId)
+
   if (!creatorId) {
     return NextResponse.json(EMPTY satisfies FunnelMetricsResponse)
   }
@@ -141,22 +143,27 @@ export async function GET(req: NextRequest) {
   const funnelName = req.nextUrl.searchParams.get('funnel_name') // null = all funnels
   const { fromDate, toDate } = parseDateRange(range, from, to)
 
-  // Fetch all funnel names for this creator (for the dropdown), unfiltered by date
-  const { data: nameRows } = await admin
-    .from('funnel_pageviews')
-    .select('funnel_name')
-    .eq('creator_id', creatorId)
-    .not('funnel_name', 'is', null)
+  // Fetch distinct funnel names for the dropdown — guard against the column not existing yet
+  let funnel_names: string[] = []
+  try {
+    const { data: nameRows } = await admin
+      .from('funnel_pageviews')
+      .select('funnel_name')
+      .eq('creator_id', creatorId)
+      .not('funnel_name', 'is', null)
+    funnel_names = [...new Set(
+      (nameRows ?? []).map((r: { funnel_name: string | null }) => r.funnel_name).filter(Boolean) as string[]
+    )].sort()
+  } catch {
+    // Column doesn't exist yet — ignore, dropdown stays empty
+  }
 
-  const funnel_names = [...new Set(
-    (nameRows ?? []).map(r => r.funnel_name as string).filter(Boolean)
-  )].sort()
-
-  // Fetch raw pageview rows (include funnel_name for filtering)
+  // Fetch raw pageview rows — funnel_name column is optional; omit it from select
+  // so the query works even if migration 025 hasn't been applied yet.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let baseQuery = (admin as any)
     .from('funnel_pageviews')
-    .select('page_name, page_path, session_id, visited_at, device_type, referrer_source, country, funnel_name')
+    .select('page_name, page_path, session_id, visited_at, device_type, referrer_source, country')
     .eq('creator_id', creatorId)
     .gte('visited_at', fromDate.toISOString())
     .lte('visited_at', toDate.toISOString())
@@ -356,6 +363,7 @@ export async function GET(req: NextRequest) {
     prevRows?.map((r: { session_id: string }) => r.session_id) ?? []
   ).size
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return NextResponse.json({
     steps,
     page_names,
@@ -368,5 +376,6 @@ export async function GET(req: NextRequest) {
     overall_referrers,
     country_breakdown,
     funnel_names,
-  } satisfies FunnelMetricsResponse)
+    debug_creator_id: creatorId,
+  } as any)
 }
