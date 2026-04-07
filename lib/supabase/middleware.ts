@@ -96,19 +96,19 @@ export async function updateSession(request: NextRequest) {
   if (pathname.startsWith('/dashboard') && role === 'setter') return redirect('/setter/dms')
   if (pathname.startsWith('/dashboard') && role === 'closer') return redirect('/closer/crm')
 
-  // Creators must complete onboarding before accessing the dashboard.
-  if (role === 'creator' && (pathname.startsWith('/dashboard') || pathname.startsWith('/onboarding'))) {
-    const { data: profile } = await supabase
-      .from('creator_profiles')
-      .select('onboarding_complete')
-      .eq('user_id', user.id)
-      .single()
-
-    const complete = profile?.onboarding_complete ?? false
-
-    if (!complete && pathname.startsWith('/dashboard')) return redirect('/onboarding')
-    if (complete && pathname.startsWith('/onboarding'))  return redirect('/dashboard')
-  }
+  // Onboarding gate disabled — /onboarding page is being reworked.
+  // Creators go straight to /dashboard regardless of onboarding_complete.
+  // TODO: re-enable once onboarding wizard is stable.
+  // if (role === 'creator' && (pathname.startsWith('/dashboard') || pathname.startsWith('/onboarding'))) {
+  //   const { data: profile } = await supabase
+  //     .from('creator_profiles')
+  //     .select('onboarding_complete')
+  //     .eq('user_id', user.id)
+  //     .single()
+  //   const complete = profile?.onboarding_complete ?? false
+  //   if (!complete && pathname.startsWith('/dashboard')) return redirect('/onboarding')
+  //   if (complete && pathname.startsWith('/onboarding'))  return redirect('/dashboard')
+  // }
 
   return supabaseResponse
 }
