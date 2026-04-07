@@ -127,6 +127,8 @@ export default function DowngradeKanban({ stages, onSelectLead, refreshKey }: Do
   const leadsRef = useRef(leads)
   useEffect(() => { leadsRef.current = leads }, [leads])
 
+  const normalizeStage = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+
   const fetchLeads = useCallback(async () => {
     setFetchError(null)
     try {
@@ -207,7 +209,7 @@ export default function DowngradeKanban({ stages, onSelectLead, refreshKey }: Do
       <DragDropContext onDragEnd={handleDragEnd}>
         <div style={{ display: 'flex', gap: 12, overflowX: 'auto', overflowY: 'visible', paddingBottom: 24, paddingTop: 4, paddingLeft: 2, paddingRight: 2, minHeight: 'calc(100vh - 290px)' }}>
           {stages.map((stage) => {
-            const colLeads = leads.filter((l) => l.downgrade_stage === stage.name)
+            const colLeads = leads.filter((l) => normalizeStage(l.downgrade_stage ?? '') === normalizeStage(stage.name))
 
             return (
               <div key={stage.id} style={{ width: 240, minWidth: 240, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>

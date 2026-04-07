@@ -27,6 +27,10 @@ export default function MainKanban({ stages, onSelectLead, onLeadCountChange, re
   const leadsRef = useRef(leads)
   useEffect(() => { leadsRef.current = leads }, [leads])
 
+  // Normalize stage keys for comparison: "DM'd" → "dmd", "call_booked" → "callbooked"
+  // leads.stage and pipeline_stages.name should be identical, but display-name edits break ===
+  const normalizeStage = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+
   const fetchLeads = useCallback(async () => {
     setFetchError(null)
     try {
@@ -124,7 +128,7 @@ export default function MainKanban({ stages, onSelectLead, onLeadCountChange, re
         }}
       >
         {stages.map((stage) => {
-          const colLeads = leads.filter((l) => l.stage === stage.name)
+          const colLeads = leads.filter((l) => normalizeStage(l.stage) === normalizeStage(stage.name))
           const isCollapsed = collapsed.has(stage.name)
 
           if (isCollapsed) {
