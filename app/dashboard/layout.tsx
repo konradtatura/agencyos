@@ -6,6 +6,7 @@ import { isTokenExpired } from '@/lib/instagram/token'
 import { AlertTriangle } from 'lucide-react'
 import ImpersonationBanner from './impersonation-banner'
 import { getSessionUser } from '@/lib/get-session-user'
+import { getCreatorId } from '@/lib/get-creator-id'
 
 export default async function DashboardLayout({
   children,
@@ -42,6 +43,20 @@ export default async function DashboardLayout({
       } catch { /* silently ignore */ }
     }
   }
+
+  // ── DM unread badge ────────────────────────────────────────────────────────
+  let dmUnreadCount = 0
+  try {
+    const creatorIdForDms = await getCreatorId()
+    if (creatorIdForDms) {
+      const { data: unreadRows } = await admin
+        .from('dm_conversations')
+        .select('unread_count')
+        .eq('creator_id', creatorIdForDms)
+        .gt('unread_count', 0)
+      dmUnreadCount = (unreadRows ?? []).reduce((sum, r) => sum + (r.unread_count as number), 0)
+    }
+  } catch { /* non-critical */ }
 
   // ── Creator profile for sidebar + IG token check ──────────────────────────
   let creatorName:  string | undefined
@@ -93,6 +108,7 @@ export default async function DashboardLayout({
         }}
         creatorName={creatorName}
         creatorNiche={creatorNiche}
+        dmUnreadCount={dmUnreadCount}
       />
       <main
         style={{

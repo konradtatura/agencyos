@@ -4,6 +4,7 @@ import PageHeader from '@/components/ui/page-header'
 import { isTokenExpired } from '@/lib/instagram/token'
 import DisconnectButton from './disconnect-button'
 import WhopSection from './whop-section'
+import DmWebhookSetup from './dm-webhook-setup'
 import { AlertTriangle, CheckCircle2, Link2 } from 'lucide-react'
 
 function IgIcon({ className }: { className?: string }) {
@@ -221,6 +222,15 @@ export default async function SettingsPage() {
       {/* ── Whop ───────────────────────────────────────────────────── */}
       <section className="mt-6">
         <WhopSection />
+      </section>
+
+      {/* ── DM Webhook ─────────────────────────────────────────────── */}
+      <section className="mt-8">
+        <SectionHeading title="DM Inbox" />
+        <DmWebhookSetup
+          webhookUrl={`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/api/webhooks/instagram-dm`}
+          verifyToken={process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ?? 'not_set'}
+        />
       </section>
 
       {/* ── GHL ────────────────────────────────────────────────────── */}

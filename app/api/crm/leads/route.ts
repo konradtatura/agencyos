@@ -58,6 +58,9 @@ export async function GET(req: Request) {
     query = query.or(`name.ilike.${term},ig_handle.ilike.${term}`)
   }
 
+  const dm_conversation_id = searchParams.get('dm_conversation_id')
+  if (dm_conversation_id) query = query.eq('dm_conversation_id', dm_conversation_id)
+
   query = query.order('created_at', { ascending: false })
 
   const { data: leads, error } = await query
