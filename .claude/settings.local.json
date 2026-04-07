@@ -58,7 +58,8 @@
       "Bash(node -e \"require\\('pg'\\)\")",
       "Bash(npx shadcn@latest add switch --yes)",
       "Bash(git reset:*)",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(grep -E \"\\\\.\\(sql|ts\\)$\")"
     ]
   }
 }
