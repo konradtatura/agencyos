@@ -93,36 +93,21 @@ export async function POST(
     accessToken = integration.access_token
   }
 
-  // 2. Resolve the Instagram Business Account ID from instagram_accounts table
-  const { data: igAccount } = await admin
-    .from('instagram_accounts')
-    .select('ig_user_id')
-    .eq('creator_id', conversation.creator_id)
-    .maybeSingle()
-
-  if (!igAccount?.ig_user_id) {
-    console.error('[dm-reply] no instagram_accounts row for creator:', conversation.creator_id)
-    return NextResponse.json(
-      { error: 'Instagram account not found — ensure Instagram is connected in Settings' },
-      { status: 422 },
-    )
-  }
-
-  const senderIgUserId = igAccount.ig_user_id
-
-  // 3. Call Instagram Messaging API — sender is the IG Business Account ID
+  // 2. Call Instagram Messaging API
+  //    /me/messages with a Page Access Token — recipient is the sender's PSID
+  //    stored in dm_conversations.ig_user_id
   let igMessageId: string | null = null
   try {
-    const igRes = await fetch(`${IG_API}/${senderIgUserId}/messages`, {
+    const igRes = await fetch(`${IG_API}/me/messages`, {
       method:  'POST',
       headers: {
         'Content-Type':  'application/json',
         'Authorization': `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        recipient:       { id: conversation.ig_user_id },
-        message:         { text },
-        messaging_type:  'RESPONSE',
+        recipient:      { id: conversation.ig_user_id },
+        message:        { text },
+        messaging_type: 'RESPONSE',
       }),
     })
 
@@ -144,6 +129,7 @@ export async function POST(
   }
 
   // 3. Persist the outbound message
+
   const { data: msg, error: insertError } = await admin
     .from('dm_messages')
     .insert({
