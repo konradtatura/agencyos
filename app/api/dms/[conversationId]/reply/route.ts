@@ -88,9 +88,9 @@ export async function POST(
   let accessToken: string
   try {
     accessToken = decrypt(integration.access_token)
-  } catch (err) {
-    console.error('[dm-reply] failed to decrypt access token:', err)
-    return NextResponse.json({ error: 'Failed to decrypt access token' }, { status: 500 })
+  } catch {
+    // Token may have been stored as plain text — fall back gracefully
+    accessToken = integration.access_token
   }
 
   // 2. Call Meta Messaging API

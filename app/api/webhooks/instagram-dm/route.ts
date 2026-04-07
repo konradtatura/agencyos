@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { decrypt } from '@/lib/encryption'
 
 // ---------------------------------------------------------------------------
 // Meta webhook payload types
@@ -25,6 +26,57 @@ interface IgEntry {
 interface IgWebhookPayload {
   object: string
   entry?: IgEntry[]
+}
+
+interface IgUserProfile {
+  name?: string
+  username?: string
+  profile_pic?: string
+}
+
+const IG_API = 'https://graph.facebook.com/v22.0'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Returns the plaintext access token, falling back to raw value if decrypt fails. */
+function getAccessToken(stored: string): string {
+  try {
+    return decrypt(stored)
+  } catch {
+    return stored
+  }
+}
+
+/**
+ * Looks like a raw PSID / numeric ID with no letters — should be resolved to a username.
+ */
+function looksLikePsid(value: string | null): boolean {
+  if (!value) return true
+  return /^\d+$/.test(value.trim())
+}
+
+/**
+ * Fetch the IG user's public profile from the Graph API.
+ * Returns null on any failure so callers can fall back gracefully.
+ */
+async function fetchIgProfile(
+  igUserId: string,
+  accessToken: string,
+): Promise<IgUserProfile | null> {
+  try {
+    const url = `${IG_API}/${igUserId}?fields=name,username,profile_pic&access_token=${accessToken}`
+    const res = await fetch(url)
+    if (!res.ok) {
+      console.warn(`[dm-webhook] Graph API returned ${res.status} for user ${igUserId}`)
+      return null
+    }
+    return await res.json() as IgUserProfile
+  } catch (err) {
+    console.warn(`[dm-webhook] failed to fetch IG profile for ${igUserId}:`, err)
+    return null
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +129,7 @@ export async function POST(req: NextRequest) {
       const messageText = event.message.text ?? null
       const sentAt      = new Date(event.timestamp).toISOString()
 
-      // a) Find creator who owns this Instagram account
+      // a) Find creator who owns this Instagram account + their access token
       const { data: igAccount } = await supabase
         .from('instagram_accounts')
         .select('creator_id')
@@ -92,23 +144,23 @@ export async function POST(req: NextRequest) {
       const creatorId = igAccount.creator_id
       console.log(`[dm-webhook] Received message from ${senderId} for creator ${creatorId}`)
 
-      // b) Upsert dm_conversations — keyed on (creator_id, ig_conversation_id)
+      // b) Upsert dm_conversations — keyed on ig_conversation_id
       const { data: conversation, error: convError } = await supabase
         .from('dm_conversations')
         .upsert(
           {
-            creator_id:          creatorId,
-            ig_conversation_id:  senderId,
-            ig_user_id:          senderId,
-            last_message_at:     new Date().toISOString(),
-            // unread_count incremented below via raw SQL to avoid race conditions
+            creator_id:         creatorId,
+            ig_conversation_id: senderId,
+            ig_user_id:         senderId,
+            last_message_at:    new Date().toISOString(),
+            // unread_count incremented below via RPC to avoid race conditions
           },
           {
-            onConflict:     'ig_conversation_id',
+            onConflict:       'ig_conversation_id',
             ignoreDuplicates: false,
           },
         )
-        .select('id, unread_count')
+        .select('id, unread_count, ig_username, ig_profile_pic')
         .single()
 
       if (convError || !conversation) {
@@ -142,8 +194,64 @@ export async function POST(req: NextRequest) {
       }
 
       console.log(`[dm-webhook] saved message ${messageId} → conversation ${conversation.id}`)
+
+      // d) Resolve IG username if we only have a PSID (fire-and-forget, non-blocking)
+      if (looksLikePsid(conversation.ig_username as string | null)) {
+        resolveAndUpdateUsername(supabase, conversation.id, senderId, creatorId).catch(
+          (err) => console.warn('[dm-webhook] background username resolve failed:', err),
+        )
+      }
     }
   }
 
   return NextResponse.json({ ok: true })
+}
+
+// ---------------------------------------------------------------------------
+// Background: resolve PSID → real username via Graph API
+// ---------------------------------------------------------------------------
+
+async function resolveAndUpdateUsername(
+  supabase: ReturnType<typeof createAdminClient>,
+  conversationId: string,
+  igUserId: string,
+  creatorId: string,
+): Promise<void> {
+  // Get the creator's access token
+  const { data: integration } = await supabase
+    .from('integrations')
+    .select('access_token, status')
+    .eq('creator_id', creatorId)
+    .eq('platform', 'instagram')
+    .maybeSingle()
+
+  if (!integration?.access_token || integration.status !== 'active') {
+    console.warn(`[dm-webhook] no active token for creator ${creatorId}, skipping username resolve`)
+    return
+  }
+
+  const accessToken = getAccessToken(integration.access_token)
+  const profile     = await fetchIgProfile(igUserId, accessToken)
+
+  if (!profile) return
+
+  const updates: Record<string, string> = {}
+  if (profile.username)    updates.ig_username    = profile.username
+  if (profile.profile_pic) updates.ig_profile_pic = profile.profile_pic
+
+  if (Object.keys(updates).length === 0) {
+    console.log(`[dm-webhook] Graph API returned no username/pic for PSID ${igUserId}`)
+    return
+  }
+
+  const { error } = await supabase
+    .from('dm_conversations')
+    .update(updates)
+    .eq('id', conversationId)
+
+  if (error) {
+    console.warn(`[dm-webhook] failed to update username for conversation ${conversationId}:`, error)
+  } else {
+    console.log(`[dm-webhook] resolved username for ${igUserId} → @${profile.username ?? '?'}`)
+  }
 }
