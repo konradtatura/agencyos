@@ -62,7 +62,6 @@ export interface FunnelMetricsResponse {
   overall_device_breakdown: DeviceBreakdown
   overall_referrers: ReferrerCount[]
   country_breakdown: CountryCount[]
-  funnel_names: string[]
 }
 
 // ── Date helpers ───────────────────────────────────────────────────────────
@@ -140,26 +139,13 @@ export async function GET(req: NextRequest) {
   const range      = req.nextUrl.searchParams.get('range') ?? '30d'
   const from       = req.nextUrl.searchParams.get('from')
   const to         = req.nextUrl.searchParams.get('to')
-  const funnelName = req.nextUrl.searchParams.get('funnel_name') // null = all funnels
+  // ?funnel=DM+Organic filters to a specific funnel; absent or "all" = no filter
+  const funnelParam = req.nextUrl.searchParams.get('funnel')
+  const funnelFilter = funnelParam && funnelParam !== 'all' ? funnelParam : null
   const { fromDate, toDate } = parseDateRange(range, from, to)
 
-  // Fetch distinct funnel names for the dropdown — guard against the column not existing yet
-  let funnel_names: string[] = []
-  try {
-    const { data: nameRows } = await admin
-      .from('funnel_pageviews')
-      .select('funnel_name')
-      .eq('creator_id', creatorId)
-      .not('funnel_name', 'is', null)
-    funnel_names = [...new Set(
-      (nameRows ?? []).map((r: { funnel_name: string | null }) => r.funnel_name).filter(Boolean) as string[]
-    )].sort()
-  } catch {
-    // Column doesn't exist yet — ignore, dropdown stays empty
-  }
-
-  // Fetch raw pageview rows — funnel_name column is optional; omit it from select
-  // so the query works even if migration 025 hasn't been applied yet.
+  // Fetch raw pageview rows — funnel_name omitted from select so the query works
+  // even if migration 025 hasn't been applied yet.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let baseQuery = (admin as any)
     .from('funnel_pageviews')
@@ -168,8 +154,8 @@ export async function GET(req: NextRequest) {
     .gte('visited_at', fromDate.toISOString())
     .lte('visited_at', toDate.toISOString())
 
-  if (funnelName) {
-    baseQuery = baseQuery.eq('funnel_name', funnelName)
+  if (funnelFilter) {
+    baseQuery = baseQuery.eq('funnel_name', funnelFilter)
   }
 
   const [{ data: rows }, { data: leaveRows }, { data: prevRows }] = await Promise.all([
@@ -193,7 +179,7 @@ export async function GET(req: NextRequest) {
 
   if (!rows || rows.length === 0) {
     const prev_total_visitors = new Set(prevRows?.map((r: { session_id: string }) => r.session_id) ?? []).size
-    return NextResponse.json({ ...EMPTY, prev_total_visitors, funnel_names } satisfies FunnelMetricsResponse)
+    return NextResponse.json({ ...EMPTY, prev_total_visitors } satisfies FunnelMetricsResponse)
   }
 
   // Fetch page_leave_events for sessions in this dataset
@@ -375,7 +361,6 @@ export async function GET(req: NextRequest) {
     overall_device_breakdown:  overallDevices,
     overall_referrers,
     country_breakdown,
-    funnel_names,
     debug_creator_id: creatorId,
   } as any)
 }

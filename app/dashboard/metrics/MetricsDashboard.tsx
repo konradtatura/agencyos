@@ -298,15 +298,24 @@ export default function MetricsDashboard() {
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo]     = useState('')
   const [funnelName, setFunnelName] = useState<string>('')   // '' = all funnels
+  const [funnelNames, setFunnelNames] = useState<string[]>([])
   const [vslData, setVslData]       = useState<VslMetricsResponse | null>(null)
   const [funnelData, setFunnelData] = useState<FunnelMetricsResponse | null>(null)
   const [loading, setLoading]       = useState(true)
+
+  // Fetch distinct funnel names once on mount
+  useEffect(() => {
+    fetch('/api/metrics/funnel/names')
+      .then(r => r.ok ? r.json() : { names: [] })
+      .then((d: { names: string[] }) => setFunnelNames(d.names))
+      .catch(() => {})
+  }, [])
 
   const buildParams = useCallback(() => {
     const p = new URLSearchParams({ range })
     if (range === 'custom' && customFrom) p.set('from', customFrom)
     if (range === 'custom' && customTo)   p.set('to', customTo)
-    if (funnelName)                       p.set('funnel_name', funnelName)
+    if (funnelName)                       p.set('funnel', funnelName)
     return p
   }, [range, customFrom, customTo, funnelName])
 
@@ -334,7 +343,6 @@ export default function MetricsDashboard() {
   const steps       = funnelData?.steps ?? []
   const pageNames   = funnelData?.page_names ?? []
   const dailyViews  = funnelData?.daily_views ?? []
-  const funnelNames = funnelData?.funnel_names ?? []
 
   const totalVisitors     = funnelData?.total_visitors ?? 0
   const prevTotalVisitors = funnelData?.prev_total_visitors ?? 0
