@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { getRoleFromUser, roleHome, PROTECTED_PREFIXES } from '@/lib/auth'
+import { getRoleFromUser, isRole, roleHome, PROTECTED_PREFIXES, type Role } from '@/lib/auth'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -46,7 +46,17 @@ export async function updateSession(request: NextRequest) {
   }
 
   // ── Authenticated ─────────────────────────────────────────────────────────
-  const role = getRoleFromUser(user)
+  // Prefer app_metadata (set during invite for normal users). Fall back to the
+  // users table for accounts created manually where app_metadata was never set.
+  let role: Role | null = getRoleFromUser(user)
+  if (!role) {
+    const { data: userRow } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle()
+    role = isRole(userRow?.role) ? (userRow!.role as Role) : null
+  }
 
   function redirect(path: string) {
     const url = request.nextUrl.clone()

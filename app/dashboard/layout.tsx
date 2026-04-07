@@ -1,40 +1,38 @@
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import Sidebar from '@/components/nav/sidebar'
 import { isTokenExpired } from '@/lib/instagram/token'
 import { AlertTriangle } from 'lucide-react'
 import ImpersonationBanner from './impersonation-banner'
+import { getSessionUser } from '@/lib/get-session-user'
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
 
   if (!user) redirect('/login')
 
-  const role = user.app_metadata?.role ?? user.user_metadata?.role
-
   // Setters and closers have their own namespaces — middleware redirects
   // them before this layout renders, but guard here too.
-  if (role === 'setter') redirect('/setter/dms')
-  if (role === 'closer') redirect('/closer/crm')
+  if (user.role === 'setter') redirect('/setter/dms')
+  if (user.role === 'closer') redirect('/closer/crm')
+
+  const admin = createAdminClient()
 
   // ── Impersonation ──────────────────────────────────────────────────────────
   let impersonatingId:   string | null = null
   let impersonatingName: string | null = null
 
-  if (role === 'super_admin') {
+  if (user.role === 'super_admin') {
     const cookieStore = await cookies()
     const impersonated = cookieStore.get('impersonating_creator_id')?.value
     if (impersonated) {
       impersonatingId = impersonated
       try {
-        const admin = createAdminClient()
         const { data: cp } = await admin
           .from('creator_profiles')
           .select('name')
@@ -45,15 +43,14 @@ export default async function DashboardLayout({
     }
   }
 
-  // Fetch the creator profile for the sidebar header.
-  // Gracefully falls back to null values if the DB isn't wired up yet.
+  // ── Creator profile for sidebar + IG token check ──────────────────────────
   let creatorName:  string | undefined
   let creatorNiche: string | undefined
   let igTokenExpiring = false
 
-  if (role === 'creator') {
+  if (user.role === 'creator') {
     try {
-      const { data: profile } = await supabase
+      const { data: profile } = await admin
         .from('creator_profiles')
         .select('id, name, niche')
         .eq('user_id', user.id)
@@ -63,7 +60,7 @@ export default async function DashboardLayout({
       creatorNiche = profile?.niche ?? undefined
 
       if (profile?.id) {
-        const { data: integration } = await supabase
+        const { data: integration } = await admin
           .from('integrations')
           .select('expires_at, status')
           .eq('creator_id', profile.id)
@@ -90,9 +87,9 @@ export default async function DashboardLayout({
       <Sidebar
         variant="creator"
         user={{
-          email:     user.email!,
-          full_name: user.user_metadata?.full_name ?? null,
-          role:      role ?? 'creator',
+          email:     user.email,
+          full_name: user.full_name,
+          role:      user.role,
         }}
         creatorName={creatorName}
         creatorNiche={creatorNiche}

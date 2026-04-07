@@ -1,28 +1,25 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
 import Sidebar from '@/components/nav/sidebar'
+import { getSessionUser } from '@/lib/get-session-user'
 
 export default async function SetterLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
 
   if (!user) redirect('/login')
-
-  const role = user.app_metadata?.role ?? user.user_metadata?.role
-  if (role !== 'setter' && role !== 'super_admin') redirect('/dashboard')
+  if (user.role !== 'setter' && user.role !== 'super_admin') redirect('/dashboard')
 
   return (
     <div>
       <Sidebar
         variant="setter"
         user={{
-          email:     user.email!,
-          full_name: user.user_metadata?.full_name ?? null,
-          role:      role ?? 'setter',
+          email:     user.email,
+          full_name: user.full_name,
+          role:      user.role,
         }}
       />
       <main
