@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
 
   const {
     location_id, page_path, page_name, session_id, referrer, visited_at,
-    device_type, referrer_source,
+    device_type, referrer_source, funnel_name,
   } = body ?? {}
 
   if (!location_id || !page_path || !session_id) {
@@ -116,6 +116,7 @@ export async function POST(req: NextRequest) {
       device_type:      device_type ? String(device_type) : null,
       referrer_source:  referrer_source ? String(referrer_source) : null,
       country:          country,
+      funnel_name:      funnel_name ? String(funnel_name) : null,
     }
 
     console.log('[pageview] upserting row:', JSON.stringify(row))

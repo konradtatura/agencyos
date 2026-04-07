@@ -37,8 +37,8 @@ export async function GET() {
   )
 
   return NextResponse.json({
-    connected:   !!profile?.whop_api_key_enc,
+    connected:   !!profile?.whop_api_key_enc && profile.whop_api_key_enc.length > 0,
     last_synced: profile?.whop_last_synced_at ?? null,
-    company_id:  profile?.whop_company_id     ?? null,
+    company_id:  profile?.whop_company_id ?? null,
   })
 }

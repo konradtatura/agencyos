@@ -62,6 +62,7 @@ export interface FunnelMetricsResponse {
   overall_device_breakdown: DeviceBreakdown
   overall_referrers: ReferrerCount[]
   country_breakdown: CountryCount[]
+  funnel_names: string[]
 }
 
 // ── Date helpers ───────────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ const EMPTY: FunnelMetricsResponse = {
   overall_device_breakdown: { desktop: 0, mobile: 0, tablet: 0 },
   overall_referrers: [],
   country_breakdown: [],
+  funnel_names: [],
 }
 
 // ── Handler ────────────────────────────────────────────────────────────────
@@ -133,19 +135,38 @@ export async function GET(req: NextRequest) {
   }
 
   // Parse date range
-  const range = req.nextUrl.searchParams.get('range') ?? '30d'
-  const from  = req.nextUrl.searchParams.get('from')
-  const to    = req.nextUrl.searchParams.get('to')
+  const range      = req.nextUrl.searchParams.get('range') ?? '30d'
+  const from       = req.nextUrl.searchParams.get('from')
+  const to         = req.nextUrl.searchParams.get('to')
+  const funnelName = req.nextUrl.searchParams.get('funnel_name') // null = all funnels
   const { fromDate, toDate } = parseDateRange(range, from, to)
 
-  // Fetch raw pageview rows (include new enrichment fields)
+  // Fetch all funnel names for this creator (for the dropdown), unfiltered by date
+  const { data: nameRows } = await admin
+    .from('funnel_pageviews')
+    .select('funnel_name')
+    .eq('creator_id', creatorId)
+    .not('funnel_name', 'is', null)
+
+  const funnel_names = [...new Set(
+    (nameRows ?? []).map(r => r.funnel_name as string).filter(Boolean)
+  )].sort()
+
+  // Fetch raw pageview rows (include funnel_name for filtering)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let baseQuery = (admin as any)
+    .from('funnel_pageviews')
+    .select('page_name, page_path, session_id, visited_at, device_type, referrer_source, country, funnel_name')
+    .eq('creator_id', creatorId)
+    .gte('visited_at', fromDate.toISOString())
+    .lte('visited_at', toDate.toISOString())
+
+  if (funnelName) {
+    baseQuery = baseQuery.eq('funnel_name', funnelName)
+  }
+
   const [{ data: rows }, { data: leaveRows }, { data: prevRows }] = await Promise.all([
-    admin
-      .from('funnel_pageviews')
-      .select('page_name, page_path, session_id, visited_at, device_type, referrer_source, country')
-      .eq('creator_id', creatorId)
-      .gte('visited_at', fromDate.toISOString())
-      .lte('visited_at', toDate.toISOString()),
+    baseQuery,
 
     // page_leave_events fetched lazily after we know session_ids — skip pre-fetching here
     Promise.resolve({ data: null }),
@@ -165,7 +186,7 @@ export async function GET(req: NextRequest) {
 
   if (!rows || rows.length === 0) {
     const prev_total_visitors = new Set(prevRows?.map((r: { session_id: string }) => r.session_id) ?? []).size
-    return NextResponse.json({ ...EMPTY, prev_total_visitors } satisfies FunnelMetricsResponse)
+    return NextResponse.json({ ...EMPTY, prev_total_visitors, funnel_names } satisfies FunnelMetricsResponse)
   }
 
   // Fetch page_leave_events for sessions in this dataset
@@ -346,5 +367,6 @@ export async function GET(req: NextRequest) {
     overall_device_breakdown:  overallDevices,
     overall_referrers,
     country_breakdown,
+    funnel_names,
   } satisfies FunnelMetricsResponse)
 }

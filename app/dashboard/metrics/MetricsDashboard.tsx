@@ -297,6 +297,7 @@ export default function MetricsDashboard() {
   const [range, setRange]           = useState<Range>('30d')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo]     = useState('')
+  const [funnelName, setFunnelName] = useState<string>('')   // '' = all funnels
   const [vslData, setVslData]       = useState<VslMetricsResponse | null>(null)
   const [funnelData, setFunnelData] = useState<FunnelMetricsResponse | null>(null)
   const [loading, setLoading]       = useState(true)
@@ -305,8 +306,9 @@ export default function MetricsDashboard() {
     const p = new URLSearchParams({ range })
     if (range === 'custom' && customFrom) p.set('from', customFrom)
     if (range === 'custom' && customTo)   p.set('to', customTo)
+    if (funnelName)                       p.set('funnel_name', funnelName)
     return p
-  }, [range, customFrom, customTo])
+  }, [range, customFrom, customTo, funnelName])
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -329,9 +331,10 @@ export default function MetricsDashboard() {
 
   const crm        = vslData?.current
   const prev       = vslData?.previous
-  const steps      = funnelData?.steps ?? []
-  const pageNames  = funnelData?.page_names ?? []
-  const dailyViews = funnelData?.daily_views ?? []
+  const steps       = funnelData?.steps ?? []
+  const pageNames   = funnelData?.page_names ?? []
+  const dailyViews  = funnelData?.daily_views ?? []
+  const funnelNames = funnelData?.funnel_names ?? []
 
   const totalVisitors     = funnelData?.total_visitors ?? 0
   const prevTotalVisitors = funnelData?.prev_total_visitors ?? 0
@@ -457,6 +460,20 @@ export default function MetricsDashboard() {
               className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-white/70 focus:outline-none focus:border-white/20"
             />
           </div>
+        )}
+
+        {/* Funnel selector — only shown once we have more than one named funnel */}
+        {funnelNames.length > 0 && (
+          <select
+            value={funnelName}
+            onChange={e => setFunnelName(e.target.value)}
+            className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs text-white/70 focus:outline-none focus:border-white/20"
+          >
+            <option value="">All funnels</option>
+            {funnelNames.map(n => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
         )}
 
         {loading && <Loader2 size={13} className="animate-spin text-white/30" />}
