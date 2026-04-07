@@ -65,7 +65,8 @@
       "Bash(grep -n \"^CREATE TABLE\" /Users/konradtatura/agencyos/supabase/migrations/*.sql)",
       "Bash(find /Users/konradtatura/agencyos -name \"*.sql\" -exec grep -l \"stories\" {} \\\\;)",
       "Bash(xargs cat:*)",
-      "Bash(grep -n \"creator_profiles\\\\|enable row level\\\\|create policy\" /Users/konradtatura/agencyos/supabase/migrations/001_*.sql)"
+      "Bash(grep -n \"creator_profiles\\\\|enable row level\\\\|create policy\" /Users/konradtatura/agencyos/supabase/migrations/001_*.sql)",
+      "Bash(grep -n \"profile\\\\.id\\\\|admin\\\\b\" /Users/konradtatura/agencyos/app/api/stories/sequences/[id]/route.ts)"
     ]
   }
 }
