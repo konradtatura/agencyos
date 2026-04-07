@@ -1,5 +1,7 @@
-import PlaceholderPage from '@/components/ui/placeholder-page'
+'use client'
 
-export default function Page() {
-  return <PlaceholderPage title="CRM" />
+import CRMShell from '@/components/crm/CRMShell'
+
+export default function SetterCRMPage() {
+  return <CRMShell />
 }
