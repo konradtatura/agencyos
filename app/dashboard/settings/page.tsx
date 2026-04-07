@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import PageHeader from '@/components/ui/page-header'
 import { isTokenExpired } from '@/lib/instagram/token'
 import DisconnectButton from './disconnect-button'
+import WhopSection from './whop-section'
 import { AlertTriangle, CheckCircle2, Link2 } from 'lucide-react'
 
 function IgIcon({ className }: { className?: string }) {
@@ -68,6 +69,8 @@ export default async function SettingsPage() {
 
   let integration: IgIntegration | null = null
   let ghlLocationId: string | null = null
+  let whopConnected = false
+  let whopLastSynced: string | null = null
 
   if (user) {
     // Admin client bypasses RLS — identity already verified by getUser() above.
@@ -75,12 +78,14 @@ export default async function SettingsPage() {
 
     const { data: profile } = await admin
       .from('creator_profiles')
-      .select('id, ghl_location_id')
+      .select('id, ghl_location_id, whop_api_key_enc, whop_last_synced_at')
       .eq('user_id', user.id)
       .maybeSingle()
 
     if (profile?.id) {
-      ghlLocationId = profile.ghl_location_id ?? null
+      ghlLocationId   = profile.ghl_location_id    ?? null
+      whopConnected   = !!profile.whop_api_key_enc
+      whopLastSynced  = profile.whop_last_synced_at ?? null
 
       const { data } = await admin
         .from('integrations')
@@ -213,6 +218,11 @@ export default async function SettingsPage() {
             </div>
           </div>
         </IntegrationRow>
+      </section>
+
+      {/* ── Whop ───────────────────────────────────────────────────── */}
+      <section className="mt-6">
+        <WhopSection connected={whopConnected} lastSyncedAt={whopLastSynced} />
       </section>
 
       {/* ── GHL ────────────────────────────────────────────────────── */}
