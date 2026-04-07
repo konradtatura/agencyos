@@ -14,6 +14,7 @@ export function getTrackingScript(locationId: string): string {
 (function () {
   var BASE_URL = '${BASE_URL}';
   var LOCATION_ID = '${locationId}';
+  var FUNNEL_NAME = '';  // Set this to identify the funnel, e.g. 'DM Organic'
 
   function getSessionId() {
     var key = 'agos_sid';
@@ -60,6 +61,7 @@ export function getTrackingScript(locationId: string): string {
         visited_at: new Date().toISOString(),
         device_type: getDeviceType(),
         referrer_source: getReferrerSource(),
+        funnel_name: FUNNEL_NAME || null,
       })
     }).catch(function () {});
   }
