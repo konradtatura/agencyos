@@ -10,38 +10,22 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 import { analyzeContent } from '@/lib/analysis/content-analyzer'
 
 export async function POST() {
   // ── Auth ─────────────────────────────────────────────────────────────────────
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const admin = createAdminClient()
-
-  // ── Resolve creator ───────────────────────────────────────────────────────────
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
   // ── Rate limit: max 3 per rolling 7-day window ────────────────────────────
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
   const { count: weeklyCount } = await admin
     .from('content_analyses')
     .select('*', { count: 'exact', head: true })
-    .eq('creator_id', profile.id)
+    .eq('creator_id', creatorId)
     .eq('platform', 'instagram')
     .gte('created_at', sevenDaysAgo)
 
@@ -53,7 +37,7 @@ export async function POST() {
   }
 
   // ── Run analysis ──────────────────────────────────────────────────────────────
-  const result = await analyzeContent(profile.id)
+  const result = await analyzeContent(creatorId)
 
   if (!result.success) {
     return NextResponse.json({ success: false, error: result.error }, { status: 400 })

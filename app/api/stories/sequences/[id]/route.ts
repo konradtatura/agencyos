@@ -8,30 +8,18 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 
 const VALID_CTA_TYPES = ['dm', 'link', 'poll', 'reply', 'none'] as const
 
 // ── Shared: auth + creator resolution + ownership check ──────────────────────
 
 async function resolveCreatorAndVerifySequence(sequenceId: string) {
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return { error: auth.error }
+  const { admin, creatorId } = auth
 
-  if (authError || !user) {
-    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  }
-
-  const admin = createAdminClient()
-
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
+  if (!creatorId) {
     return { error: NextResponse.json({ error: 'Creator profile not found' }, { status: 404 }) }
   }
 
@@ -40,14 +28,14 @@ async function resolveCreatorAndVerifySequence(sequenceId: string) {
     .from('story_sequences')
     .select('id')
     .eq('id', sequenceId)
-    .eq('creator_id', profile.id)
+    .eq('creator_id', creatorId)
     .maybeSingle()
 
   if (!seq) {
     return { error: NextResponse.json({ error: 'Sequence not found' }, { status: 404 }) }
   }
 
-  return { admin, creatorId: profile.id as string }
+  return { admin, creatorId }
 }
 
 // ── GET ───────────────────────────────────────────────────────────────────────

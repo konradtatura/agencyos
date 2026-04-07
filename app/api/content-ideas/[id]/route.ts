@@ -1,38 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 import type { ContentIdeaUpdate } from '@/lib/content-pipeline/types'
 
 // ---------------------------------------------------------------------------
 // Auth helper — resolves the caller's creator_id and verifies idea ownership
 // ---------------------------------------------------------------------------
 async function resolveIdeaAccess(ideaId: string): Promise<
-  | { admin: ReturnType<typeof createAdminClient>; creatorId: string }
+  | { admin: ReturnType<typeof import('@/lib/supabase/admin').createAdminClient>; creatorId: string }
   | { error: NextResponse }
 > {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return { error: auth.error }
+  const { admin, creatorId } = auth
 
-  if (authError || !user) {
-    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  }
-
-  const admin = createAdminClient()
-
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
+  if (!creatorId) {
     return { error: NextResponse.json({ error: 'Creator profile not found' }, { status: 404 }) }
   }
-
-  const creatorId = profile.id as string
 
   // Verify the idea belongs to this creator
   const { data: idea } = await admin

@@ -21,8 +21,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 
 const VALID_CTA_TYPES = ['dm', 'link', 'poll', 'reply', 'none'] as const
 type CtaType = typeof VALID_CTA_TYPES[number]
@@ -35,27 +34,10 @@ interface SlideInput {
 
 export async function POST(req: Request) {
   // ── Auth ─────────────────────────────────────────────────────────────────────
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const admin = createAdminClient()
-
-  // ── Resolve creator ───────────────────────────────────────────────────────────
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
-
-  const creatorId = profile.id
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
   // ── Parse & validate body ─────────────────────────────────────────────────────
   const body = await req.json() as { name?: string; cta_type?: string; slides?: SlideInput[] }

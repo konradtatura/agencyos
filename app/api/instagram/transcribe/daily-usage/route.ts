@@ -6,31 +6,21 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 import { TRANSCRIPTION_DAILY_LIMIT } from '@/lib/instagram/transcription-limits'
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const admin = createAdminClient()
-
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) return NextResponse.json({ error: 'No creator profile' }, { status: 403 })
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'No creator profile' }, { status: 403 })
 
   const today = new Date().toISOString().split('T')[0]
 
   const { data: row } = await admin
     .from('transcription_usage')
     .select('count')
-    .eq('creator_id', profile.id)
+    .eq('creator_id', creatorId)
     .eq('date', today)
     .maybeSingle()
 

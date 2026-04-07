@@ -1,30 +1,16 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 import { triggerFullSync } from '@/lib/instagram/sync'
 
 // ── POST /api/instagram/sync ──────────────────────────────────────────────────
 
 export async function POST() {
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const admin = createAdminClient()
-  const { data: profile, error: profileError } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (profileError || !profile) {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
-
-  const result = await triggerFullSync(profile.id)
+  const result = await triggerFullSync(creatorId)
   return NextResponse.json(result, { status: result.success ? 200 : 500 })
 }
 

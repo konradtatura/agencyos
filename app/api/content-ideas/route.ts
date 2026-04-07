@@ -1,50 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 import type { ContentIdeaInsert } from '@/lib/content-pipeline/types'
 
 // ---------------------------------------------------------------------------
-// Auth helper — resolves the caller's creator_id
+// Auth helper — resolves the caller's creator_id (supports impersonation)
 // ---------------------------------------------------------------------------
 async function resolveCreatorId(): Promise<
-  { creatorId: string; admin: ReturnType<typeof createAdminClient> } | { error: NextResponse }
+  { creatorId: string; admin: ReturnType<typeof import('@/lib/supabase/admin').createAdminClient> } | { error: NextResponse }
 > {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  }
-
-  const admin = createAdminClient()
-
-  // Super admins can access everything — skip creator check
-  const { data: userRow } = await admin
-    .from('users')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-
-  if (userRow?.role === 'super_admin') {
-    // For super_admin we still need a creator_id to scope queries; skip creator
-    // requirement and let the caller handle it
-    return { error: NextResponse.json({ error: 'Super admins must use admin API' }, { status: 403 }) }
-  }
-
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
-    return { error: NextResponse.json({ error: 'Creator profile not found' }, { status: 404 }) }
-  }
-
-  return { creatorId: profile.id as string, admin }
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return { error: auth.error }
+  const { admin, creatorId } = auth
+  if (!creatorId) return { error: NextResponse.json({ error: 'Creator profile not found' }, { status: 404 }) }
+  return { creatorId, admin }
 }
 
 // ---------------------------------------------------------------------------

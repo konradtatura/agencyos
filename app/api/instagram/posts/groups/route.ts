@@ -18,33 +18,15 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient }      from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-
-// ── Auth / creator helper ─────────────────────────────────────────────────────
-
-async function resolveCreator() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { user: null, creatorId: null }
-
-  const admin = createAdminClient()
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  return { user, creatorId: profile?.id ?? null, admin }
-}
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 
 // ── GET — list groups ─────────────────────────────────────────────────────────
 
 export async function GET() {
-  const { creatorId, admin } = await resolveCreator()
-  if (!creatorId || !admin) {
-    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
-  }
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
   const { data: groups, error } = await admin
     .from('reel_groups')
@@ -60,10 +42,10 @@ export async function GET() {
 // ── POST — mutate groups ──────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const { creatorId, admin } = await resolveCreator()
-  if (!creatorId || !admin) {
-    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
-  }
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
   const body = await req.json() as Record<string, unknown>
   const action = body.action as string | undefined

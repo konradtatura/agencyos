@@ -13,31 +13,17 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 import { syncAccountStats } from '@/lib/instagram/sync'
 import { syncPosts } from '@/lib/instagram/sync-posts'
 import { syncStories } from '@/lib/instagram/sync-stories'
 
 export async function POST() {
   // ── Auth & profile ────────────────────────────────────────────────────────
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const admin = createAdminClient()
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
   // ── SSE stream ────────────────────────────────────────────────────────────
   const encoder = new TextEncoder()
@@ -51,18 +37,18 @@ export async function POST() {
       try {
         // Phase 1 — account stats
         send({ phase: 'account', message: 'Syncing account stats…' })
-        await syncAccountStats(profile.id)
+        await syncAccountStats(creatorId)
 
         // Phase 2 — posts + per-post insights
         send({ phase: 'posts', message: 'Syncing posts…', fetched: 0, total: 0 })
 
-        const { postCount } = await syncPosts(profile.id, (fetched, total) => {
+        const { postCount } = await syncPosts(creatorId, (fetched, total) => {
           send({ phase: 'posts', message: 'Syncing posts…', fetched, total })
         })
 
         // Phase 3 — stories
         send({ phase: 'stories', message: 'Syncing stories…' })
-        const storiesOutcome = await syncStories(profile.id)
+        const storiesOutcome = await syncStories(creatorId)
         const storyCount = storiesOutcome.success ? storiesOutcome.synced_count : 0
 
         // Done

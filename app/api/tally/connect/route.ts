@@ -7,8 +7,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 import { tallyEncrypt } from '@/lib/tally/encryption'
 
 interface TallyForm {
@@ -24,23 +23,10 @@ interface TallyFormsResponse {
 
 export async function POST(req: Request) {
   // -- Auth --
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const admin = createAdminClient()
-
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
   // -- Parse body --
   let apiKey: string
@@ -85,7 +71,7 @@ export async function POST(req: Request) {
     .from('tally_api_keys')
     .upsert(
       {
-        creator_id:        profile.id,
+        creator_id:        creatorId,
         api_key_encrypted: encryptedKey,
         connected_at:      new Date().toISOString(),
         last_validated_at: new Date().toISOString(),

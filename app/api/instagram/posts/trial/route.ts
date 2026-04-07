@@ -8,16 +8,13 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
   let body: { post_ids?: unknown; is_trial?: unknown }
   try {
@@ -35,25 +32,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'is_trial must be a boolean' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
-
-  // Resolve creator profile
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
-
   // Update — the WHERE on creator_id ensures creators can only touch their own posts
   const { error } = await admin
     .from('instagram_posts')
     .update({ is_trial })
     .in('id', post_ids as string[])
-    .eq('creator_id', profile.id)
+    .eq('creator_id', creatorId)
 
   if (error) {
     console.error('[trial] update failed', error)

@@ -11,17 +11,14 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 
 export async function GET(request: Request) {
   // ── Auth ─────────────────────────────────────────────────────────────────────
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
   // ── Parse query param ────────────────────────────────────────────────────────
   const { searchParams } = new URL(request.url)
@@ -31,25 +28,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'postId query param is required' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
-
-  // ── Resolve creator ──────────────────────────────────────────────────────────
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
-
   // ── Fetch post status — ownership-scoped ─────────────────────────────────────
   const { data: post } = await admin
     .from('instagram_posts')
     .select('id, transcript_status')
     .eq('id', postId)
-    .eq('creator_id', profile.id)
+    .eq('creator_id', creatorId)
     .single()
 
   if (!post) {

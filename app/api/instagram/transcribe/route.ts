@@ -16,19 +16,16 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 import { transcribeReel } from '@/lib/transcription/whisper'
 import { TRANSCRIPTION_DAILY_LIMIT } from '@/lib/instagram/transcription-limits'
 
 export async function POST(request: Request) {
   // ── 1. Auth ─────────────────────────────────────────────────────────────────
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
 
   // ── Parse body ──────────────────────────────────────────────────────────────
   let body: { postId?: unknown }
@@ -43,24 +40,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'postId must be a non-empty string' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
-
-  // ── 2. Resolve creator and fetch post ───────────────────────────────────────
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) {
-    return NextResponse.json({ error: 'Creator profile not found' }, { status: 404 })
-  }
-
+  // ── 2. Fetch post ───────────────────────────────────────────────────────────
   const { data: post } = await admin
     .from('instagram_posts')
     .select('id, media_type, media_url, transcript_status')
     .eq('id', postId)
-    .eq('creator_id', profile.id)   // ownership check
+    .eq('creator_id', creatorId)   // ownership check
     .single()
 
   if (!post) {
@@ -74,7 +59,7 @@ export async function POST(request: Request) {
   const { data: usageRow } = await admin
     .from('transcription_usage')
     .select('id, count')
-    .eq('creator_id', profile.id)
+    .eq('creator_id', creatorId)
     .eq('date', today)
     .maybeSingle()
 
@@ -125,7 +110,7 @@ export async function POST(request: Request) {
   } else {
     await admin
       .from('transcription_usage')
-      .insert({ creator_id: profile.id, date: today, count: 1 })
+      .insert({ creator_id: creatorId, date: today, count: 1 })
   }
 
   return NextResponse.json({ success: true, transcript: result.transcript })

@@ -9,17 +9,17 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveCrmUser } from '@/app/api/crm/_auth'
 
 export type ManualMetricField = 'avg_watch_time_ms'
 
 const ALLOWED_FIELDS: ManualMetricField[] = ['avg_watch_time_ms']
 
 export async function PATCH(req: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const auth = await resolveCrmUser()
+  if ('error' in auth) return auth.error
+  const { admin, creatorId } = auth
+  if (!creatorId) return NextResponse.json({ error: 'No creator profile' }, { status: 403 })
 
   const body = await req.json() as { post_id?: string; field?: string; value?: unknown }
   const { post_id, field, value } = body
@@ -31,22 +31,11 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: 'value must be a non-negative finite number' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
-
-  // Verify this post belongs to the authenticated user's creator profile
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!profile) return NextResponse.json({ error: 'No creator profile' }, { status: 403 })
-
   const { data: post } = await admin
     .from('instagram_posts')
     .select('id')
     .eq('id', post_id)
-    .eq('creator_id', profile.id)
+    .eq('creator_id', creatorId)
     .maybeSingle()
 
   if (!post) return NextResponse.json({ error: 'Post not found' }, { status: 404 })
