@@ -76,16 +76,26 @@ export default async function SettingsPage() {
     // Admin client bypasses RLS — identity already verified by getUser() above.
     const admin = createAdminClient()
 
+    // Base profile — ghl_location_id is a stable column, always query it separately
+    // so that missing whop columns (migration not yet applied) never break this fetch.
     const { data: profile } = await admin
       .from('creator_profiles')
-      .select('id, ghl_location_id, whop_api_key_enc, whop_last_synced_at')
+      .select('id, ghl_location_id')
       .eq('user_id', user.id)
       .maybeSingle()
 
     if (profile?.id) {
-      ghlLocationId   = profile.ghl_location_id    ?? null
-      whopConnected   = !!profile.whop_api_key_enc
-      whopLastSynced  = profile.whop_last_synced_at ?? null
+      ghlLocationId = profile.ghl_location_id ?? null
+
+      // Whop columns — added in migration 023; guard against them not existing yet.
+      const { data: whopRow } = await admin
+        .from('creator_profiles')
+        .select('whop_api_key_enc, whop_last_synced_at')
+        .eq('id', profile.id)
+        .maybeSingle()
+
+      whopConnected  = !!whopRow?.whop_api_key_enc
+      whopLastSynced = whopRow?.whop_last_synced_at ?? null
 
       const { data } = await admin
         .from('integrations')

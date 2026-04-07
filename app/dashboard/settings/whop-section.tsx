@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { CheckCircle2, RefreshCw, Zap } from 'lucide-react'
 
 function fmt(iso: string) {
@@ -10,9 +10,12 @@ function fmt(iso: string) {
   })
 }
 
+// Props are used only as the initial hint; we always re-fetch on mount so the
+// displayed state always reflects the actual DB value, even after a Next.js
+// navigation re-renders the server component with stale cached props.
 interface Props {
-  connected:      boolean
-  lastSyncedAt:   string | null
+  connected:    boolean
+  lastSyncedAt: string | null
 }
 
 export default function WhopSection({ connected: initialConnected, lastSyncedAt: initialSynced }: Props) {
@@ -23,6 +26,28 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
   const [syncing,    setSyncing]    = useState(false)
   const [saveErr,    setSaveErr]    = useState<string | null>(null)
   const [syncMsg,    setSyncMsg]    = useState<string | null>(null)
+
+  // On mount, fetch live connection status so we're never out of sync with the DB.
+  useEffect(() => {
+    fetch('/api/revenue/whop/connect')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data == null) return
+        setConnected(!!data.connected)
+        if (data.last_synced_at) setLastSynced(data.last_synced_at)
+      })
+      .catch(() => { /* network failure — keep prop value */ })
+  }, [])
+
+  async function refreshStatus() {
+    try {
+      const r = await fetch('/api/revenue/whop/connect')
+      if (!r.ok) return
+      const data = await r.json()
+      setConnected(!!data.connected)
+      if (data.last_synced_at) setLastSynced(data.last_synced_at)
+    } catch { /* ignore */ }
+  }
 
   async function handleSave() {
     if (!apiKey.trim()) return
@@ -36,7 +61,9 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
       })
       const json = await res.json()
       if (!res.ok) { setSaveErr(json.error ?? 'Save failed'); return }
-      setConnected(true)
+      // Re-fetch from server to confirm the key was persisted — don't rely on
+      // optimistic local state which can be wrong if the page remounts.
+      await refreshStatus()
       setApiKey('')
     } catch {
       setSaveErr('Network error')
@@ -51,9 +78,18 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
     try {
       const res = await fetch('/api/revenue/whop/sync', { method: 'POST' })
       const json = await res.json()
-      if (!res.ok) { setSyncMsg(json.error ?? 'Sync failed'); return }
+      // Only update the sync message + timestamp — never touch connected state.
+      // The sync endpoint does not change whether the key is valid.
+      if (!res.ok) {
+        setSyncMsg(json.error ?? 'Sync failed')
+        return
+      }
       setLastSynced(new Date().toISOString())
-      setSyncMsg(`Synced: ${json.inserted ?? 0} new, ${json.updated ?? 0} updated`)
+      setSyncMsg(
+        json.debug
+          ? 'Debug mode — raw data returned, no records synced yet'
+          : `Synced: ${json.synced ?? 0} records`
+      )
     } catch {
       setSyncMsg('Network error')
     } finally {
