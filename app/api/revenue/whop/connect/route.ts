@@ -48,23 +48,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'api_key is required' }, { status: 400 })
   }
 
-  // Validate with Whop API — 401 means bad key, anything else (200, 403, …) means key is recognised
-  const whopRes = await fetch('https://api.whop.com/api/v1/memberships', {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  }).catch(() => null)
-
-  if (!whopRes) {
-    return NextResponse.json({ error: 'Could not reach Whop API' }, { status: 502 })
-  }
-
-  if (whopRes.status === 401) {
-    return NextResponse.json(
-      { error: 'Invalid Whop API key — authentication rejected by Whop.' },
-      { status: 422 },
-    )
-  }
-
-  // Encrypt and store
+  // Encrypt and store — key is validated implicitly on first sync
   let encrypted: string
   try {
     encrypted = encrypt(apiKey)
