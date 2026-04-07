@@ -69,8 +69,6 @@ export default async function SettingsPage() {
 
   let integration: IgIntegration | null = null
   let ghlLocationId: string | null = null
-  let whopConnected = false
-  let whopLastSynced: string | null = null
 
   if (user) {
     // Admin client bypasses RLS — identity already verified by getUser() above.
@@ -86,16 +84,6 @@ export default async function SettingsPage() {
 
     if (profile?.id) {
       ghlLocationId = profile.ghl_location_id ?? null
-
-      // Whop columns — added in migration 023; guard against them not existing yet.
-      const { data: whopRow } = await admin
-        .from('creator_profiles')
-        .select('whop_api_key_enc, whop_last_synced_at')
-        .eq('id', profile.id)
-        .maybeSingle()
-
-      whopConnected  = !!whopRow?.whop_api_key_enc
-      whopLastSynced = whopRow?.whop_last_synced_at ?? null
 
       const { data } = await admin
         .from('integrations')
@@ -232,7 +220,7 @@ export default async function SettingsPage() {
 
       {/* ── Whop ───────────────────────────────────────────────────── */}
       <section className="mt-6">
-        <WhopSection connected={whopConnected} lastSyncedAt={whopLastSynced} />
+        <WhopSection />
       </section>
 
       {/* ── GHL ────────────────────────────────────────────────────── */}

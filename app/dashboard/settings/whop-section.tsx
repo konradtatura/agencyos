@@ -10,47 +10,39 @@ function fmt(iso: string) {
   })
 }
 
-// Props are used only as the initial hint; we always re-fetch on mount so the
-// displayed state always reflects the actual DB value, even after a Next.js
-// navigation re-renders the server component with stale cached props.
-interface Props {
-  connected:    boolean
-  lastSyncedAt: string | null
-}
+const INPUT_STYLE = {
+  backgroundColor: '#1f2937',
+  border: '1px solid rgba(255,255,255,0.08)',
+} as const
 
-export default function WhopSection({ connected: initialConnected, lastSyncedAt: initialSynced }: Props) {
-  const [apiKey,     setApiKey]     = useState('')
-  const [companyId,  setCompanyId]  = useState('')
-  const [connected,  setConnected]  = useState(initialConnected)
-  const [lastSynced, setLastSynced] = useState(initialSynced)
-  const [saving,     setSaving]     = useState(false)
-  const [syncing,    setSyncing]    = useState(false)
-  const [saveErr,    setSaveErr]    = useState<string | null>(null)
-  const [syncMsg,    setSyncMsg]    = useState<string | null>(null)
+export default function WhopSection() {
+  // Start in loading state — render nothing until the live fetch resolves so we
+  // never flash the disconnected form for an already-connected account.
+  const [status,    setStatus]    = useState<'loading' | 'connected' | 'disconnected'>('loading')
+  const [companyId, setCompanyId] = useState('')
+  const [lastSynced, setLastSynced] = useState<string | null>(null)
 
-  // On mount, fetch live connection status so we're never out of sync with the DB.
-  useEffect(() => {
-    fetch('/api/revenue/whop/connect')
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data == null) return
-        setConnected(!!data.connected)
-        if (data.last_synced_at) setLastSynced(data.last_synced_at)
-        if (data.company_id)     setCompanyId(data.company_id)
-      })
-      .catch(() => { /* network failure — keep prop value */ })
-  }, [])
+  const [apiKey,   setApiKey]   = useState('')
+  const [inputCid, setInputCid] = useState('')
+  const [saving,   setSaving]   = useState(false)
+  const [syncing,  setSyncing]  = useState(false)
+  const [saveErr,  setSaveErr]  = useState<string | null>(null)
+  const [syncMsg,  setSyncMsg]  = useState<string | null>(null)
 
-  async function refreshStatus() {
+  async function fetchStatus() {
     try {
-      const r = await fetch('/api/revenue/whop/connect')
-      if (!r.ok) return
-      const data = await r.json()
-      setConnected(!!data.connected)
-      if (data.last_synced_at) setLastSynced(data.last_synced_at)
-      if (data.company_id)     setCompanyId(data.company_id)
-    } catch { /* ignore */ }
+      const res  = await fetch('/api/revenue/whop/status')
+      if (!res.ok) { setStatus('disconnected'); return }
+      const data = await res.json()
+      setCompanyId(data.company_id  ?? '')
+      setLastSynced(data.last_synced ?? null)
+      setStatus(data.connected ? 'connected' : 'disconnected')
+    } catch {
+      setStatus('disconnected')
+    }
   }
+
+  useEffect(() => { fetchStatus() }, [])
 
   async function handleSave() {
     if (!apiKey.trim()) return
@@ -58,15 +50,15 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
     setSaveErr(null)
     try {
       const res = await fetch('/api/revenue/whop/connect', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: apiKey.trim(), company_id: companyId.trim() || undefined }),
+        body:    JSON.stringify({ api_key: apiKey.trim(), company_id: inputCid.trim() || undefined }),
       })
       const json = await res.json()
       if (!res.ok) { setSaveErr(json.error ?? 'Save failed'); return }
-      // Re-fetch from server to confirm the key was persisted.
-      await refreshStatus()
       setApiKey('')
+      setInputCid('')
+      await fetchStatus()
     } catch {
       setSaveErr('Network error')
     } finally {
@@ -78,19 +70,14 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
     setSyncing(true)
     setSyncMsg(null)
     try {
-      const res = await fetch('/api/revenue/whop/sync', { method: 'POST' })
+      const res  = await fetch('/api/revenue/whop/sync', { method: 'POST' })
       const json = await res.json()
-      // Only update the sync message + timestamp — never touch connected state.
-      // The sync endpoint does not change whether the key is valid.
-      if (!res.ok) {
-        setSyncMsg(json.error ?? 'Sync failed')
-        return
-      }
+      if (!res.ok) { setSyncMsg(json.error ?? 'Sync failed'); return }
       setLastSynced(new Date().toISOString())
       setSyncMsg(
         json.debug
-          ? 'Debug mode — raw data returned, no records synced yet'
-          : `Synced: ${json.synced ?? 0} records`
+          ? 'Debug mode — raw data returned'
+          : `Synced ${json.synced ?? 0} of ${json.total ?? 0} payments`
       )
     } catch {
       setSyncMsg('Network error')
@@ -105,7 +92,6 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
       style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}
     >
       <div className="flex items-start gap-4">
-        {/* Icon */}
         <div
           className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
           style={{ backgroundColor: 'rgba(124,58,237,0.15)' }}
@@ -114,9 +100,13 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="mb-1 text-[14px] font-semibold text-[#f9fafb]">Whop</p>
+          <p className="mb-2 text-[14px] font-semibold text-[#f9fafb]">Whop</p>
 
-          {connected ? (
+          {status === 'loading' && (
+            <div className="h-5 w-24 animate-pulse rounded" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }} />
+          )}
+
+          {status === 'connected' && (
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <span
@@ -151,7 +141,7 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
                 </button>
 
                 <button
-                  onClick={() => setConnected(false)}
+                  onClick={() => { setStatus('disconnected'); setSyncMsg(null) }}
                   className="text-[12px] text-[#6b7280] hover:text-[#9ca3af]"
                 >
                   Change API key
@@ -162,7 +152,9 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
                 <p className="text-[12px] text-[#a78bfa]">{syncMsg}</p>
               )}
             </div>
-          ) : (
+          )}
+
+          {status === 'disconnected' && (
             <div className="space-y-3">
               <p className="text-[12.5px] text-[#6b7280]">
                 Connect your Whop account to automatically sync payments as sales.
@@ -175,16 +167,16 @@ export default function WhopSection({ connected: initialConnected, lastSyncedAt:
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="API key"
                   className="w-full rounded-lg px-3 py-2 text-[13px] text-[#f9fafb] placeholder-[#4b5563] outline-none"
-                  style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.08)' }}
+                  style={INPUT_STYLE}
                   onKeyDown={(e) => e.key === 'Enter' && handleSave()}
                 />
                 <input
                   type="text"
-                  value={companyId}
-                  onChange={(e) => setCompanyId(e.target.value)}
+                  value={inputCid}
+                  onChange={(e) => setInputCid(e.target.value)}
                   placeholder="Company ID (biz_…)"
                   className="w-full rounded-lg px-3 py-2 text-[13px] text-[#f9fafb] placeholder-[#4b5563] outline-none"
-                  style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.08)' }}
+                  style={INPUT_STYLE}
                   onKeyDown={(e) => e.key === 'Enter' && handleSave()}
                 />
               </div>

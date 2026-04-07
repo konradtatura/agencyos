@@ -430,15 +430,30 @@ function ProductModal({
 
 // ── Overview tab ───────────────────────────────────────────────────────────────
 
-function OverviewTab({ summary, range, onRangeChange }: {
+function OverviewTab({ summary, loading, error, range, onRangeChange }: {
   summary: RevenueSummary | null
+  loading: boolean
+  error:   string | null
   range: string
   onRangeChange: (r: string) => void
 }) {
-  if (!summary) {
+  if (loading) {
     return (
       <div className="flex h-40 items-center justify-center text-[13px] text-[#4b5563]">
         Loading…
+      </div>
+    )
+  }
+
+  if (!summary) return null
+
+  if (error) {
+    return (
+      <div
+        className="rounded-xl px-4 py-3 text-[13px] text-[#fca5a5]"
+        style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}
+      >
+        {error}
       </div>
     )
   }
@@ -882,17 +897,48 @@ function ProductsTab() {
 
 type Tab = 'overview' | 'sales' | 'products'
 
+const EMPTY_SUMMARY: RevenueSummary = {
+  period:        { from: '', to: '' },
+  cashCollected: 0,
+  mrr:           0,
+  newMrr:        0,
+  avgDealValue:  0,
+  totalSales:    0,
+  byTier:        [],
+  byPlatform:    [],
+  byCloser:      [],
+  bySource:      [],
+  monthly:       [],
+}
+
 export default function RevenueView() {
-  const [tab,     setTab]     = useState<Tab>('overview')
-  const [range,   setRange]   = useState('30d')
-  const [summary, setSummary] = useState<RevenueSummary | null>(null)
-  const [products, setProducts] = useState<Product[]>([])
+  const [tab,             setTab]             = useState<Tab>('overview')
+  const [range,           setRange]           = useState('30d')
+  const [summary,         setSummary]         = useState<RevenueSummary | null>(null)
+  const [summaryLoading,  setSummaryLoading]  = useState(true)
+  const [summaryError,    setSummaryError]    = useState<string | null>(null)
+  const [products,        setProducts]        = useState<Product[]>([])
 
   const loadSummary = useCallback(async (r: string) => {
     setSummary(null)
-    const res  = await fetch(`/api/revenue/summary?range=${r}`)
-    const data = await res.json()
-    setSummary(data)
+    setSummaryLoading(true)
+    setSummaryError(null)
+    try {
+      const res  = await fetch(`/api/revenue/summary?range=${r}`)
+      const data = await res.json()
+      if (!res.ok) {
+        setSummaryError(data?.error ?? 'Failed to load summary')
+        setSummary(EMPTY_SUMMARY)
+      } else {
+        // Ensure all required keys exist — treat missing/empty object as zero-state
+        setSummary({ ...EMPTY_SUMMARY, ...data })
+      }
+    } catch (e) {
+      setSummaryError('Network error — could not load summary')
+      setSummary(EMPTY_SUMMARY)
+    } finally {
+      setSummaryLoading(false)
+    }
   }, [])
 
   const loadProducts = useCallback(async () => {
@@ -944,6 +990,8 @@ export default function RevenueView() {
       {tab === 'overview' && (
         <OverviewTab
           summary={summary}
+          loading={summaryLoading}
+          error={summaryError}
           range={range}
           onRangeChange={(r) => { setRange(r); loadSummary(r) }}
         />
