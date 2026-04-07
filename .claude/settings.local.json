@@ -59,7 +59,12 @@
       "Bash(npx shadcn@latest add switch --yes)",
       "Bash(git reset:*)",
       "Bash(node -e ':*)",
-      "Bash(grep -E \"\\\\.\\(sql|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(sql|ts\\)$\")",
+      "Bash(wc -l /Users/konradtatura/agencyos/supabase/migrations/*.sql)",
+      "Bash(find /Users/konradtatura/agencyos/supabase -type f -exec grep -l \"instagram_stories\" {} \\\\;)",
+      "Bash(grep -n \"^CREATE TABLE\" /Users/konradtatura/agencyos/supabase/migrations/*.sql)",
+      "Bash(find /Users/konradtatura/agencyos -name \"*.sql\" -exec grep -l \"stories\" {} \\\\;)",
+      "Bash(xargs cat:*)"
     ]
   }
 }

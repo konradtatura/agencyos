@@ -125,11 +125,10 @@ export default function MainKanban({ stages, onSelectLead, onLeadCountChange, re
       >
         {stages.map((stage) => {
           const colLeads = leads.filter((l) => l.stage === stage.name)
-          const isCollapsed = collapsed.has(stage.name) || (colLeads.length === 0)
-          const userCollapsed = collapsed.has(stage.name)
+          const isCollapsed = collapsed.has(stage.name)
 
-          if (isCollapsed && !userCollapsed) {
-            // Auto-collapsed because 0 leads — show 52px strip
+          if (isCollapsed) {
+            // User explicitly collapsed this column
             return (
               <div
                 key={stage.id}
@@ -226,7 +225,7 @@ export default function MainKanban({ stages, onSelectLead, onLeadCountChange, re
                     }}
                   >
                     {colLeads.length === 0 && !snapshot.isDraggingOver && (
-                      <p style={{ fontSize: 11, color: '#1f2937', textAlign: 'center', paddingTop: 32, pointerEvents: 'none', userSelect: 'none' }}>
+                      <p style={{ fontSize: 11, color: '#374151', textAlign: 'center', paddingTop: 32, pointerEvents: 'none', userSelect: 'none' }}>
                         No leads
                       </p>
                     )}

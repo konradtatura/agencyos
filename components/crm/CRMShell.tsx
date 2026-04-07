@@ -140,6 +140,12 @@ export default function CRMShell() {
     setRefreshKey((k) => k + 1)
   }, [])
 
+  // Stable reference — must not be an inline arrow or it recreates fetchLeads
+  // in MainKanban on every render, causing an infinite loading loop.
+  const handleLeadCountChange = useCallback((n: number) => {
+    setStats((s) => s ? { ...s, total: n } : null)
+  }, [])
+
   const activeStages = pipelineTab === 'main' ? mainStages : downgradeStages
 
   return (
@@ -240,7 +246,7 @@ export default function CRMShell() {
             <MainKanban
               stages={mainStages}
               onSelectLead={setSelectedId}
-              onLeadCountChange={(n) => setStats((s) => s ? { ...s, total: n } : null)}
+              onLeadCountChange={handleLeadCountChange}
               refreshKey={refreshKey}
             />
           )}
