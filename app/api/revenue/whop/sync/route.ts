@@ -19,6 +19,7 @@ interface WhopPayment {
   created_at: string
   final_amount?: number | null
   subtotal?:     number | null
+  currency?:     string | null
   product?: {
     id:    string
     title: string
@@ -149,10 +150,11 @@ export async function POST() {
   let synced = 0
 
   for (const p of paid) {
-    const email     = p.user?.email ?? null
-    const leadId    = email ? (emailToLeadId.get(email) ?? null) : null
-    const amount    = ((p.final_amount ?? p.subtotal ?? 0)) / 100
-    const saleDate  = p.paid_at ? p.paid_at.slice(0, 10) : p.created_at.slice(0, 10)
+    const email    = p.user?.email ?? null
+    const leadId   = email ? (emailToLeadId.get(email) ?? null) : null
+    const amount   = p.final_amount ?? p.subtotal ?? 0  // Whop returns full currency units, not cents
+    const saleDate = p.paid_at ? p.paid_at.slice(0, 10) : p.created_at.slice(0, 10)
+    const currency = p.currency?.toUpperCase() ?? null
 
     const { error } = await admin.from('sales').upsert(
       {
@@ -160,6 +162,7 @@ export async function POST() {
         lead_id:       leadId,
         product_name:  p.product?.title ?? null,
         amount,
+        currency,
         platform:      'whop',
         payment_type:  'upfront',
         sale_date:     saleDate,
