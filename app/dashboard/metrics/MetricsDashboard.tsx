@@ -470,8 +470,8 @@ export default function MetricsDashboard() {
           </div>
         )}
 
-        {/* Funnel selector — only shown once we have more than one named funnel */}
-        {funnelNames.length > 0 && (
+        {/* Funnel selector — only shown when 2+ named funnels exist */}
+        {funnelNames.length > 1 && (
           <select
             value={funnelName}
             onChange={e => setFunnelName(e.target.value)}
