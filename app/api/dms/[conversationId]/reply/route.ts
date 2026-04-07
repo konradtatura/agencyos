@@ -65,7 +65,7 @@ export async function POST(
   // 1. Get the creator's Instagram access token + cached page_id
   const { data: integration, error: integError } = await admin
     .from('integrations')
-    .select('access_token, status, meta')
+    .select('access_token, status')
     .eq('creator_id', conversation.creator_id)
     .eq('platform', 'instagram')
     .maybeSingle()
@@ -93,47 +93,27 @@ export async function POST(
     accessToken = integration.access_token
   }
 
-  // 2. Resolve the Facebook Page ID (required for /{page_id}/messages endpoint)
-  //    Check the cached value first; fetch from /me if absent.
-  const meta = (integration.meta ?? {}) as Record<string, unknown>
-  let pageId  = typeof meta.page_id === 'string' ? meta.page_id : null
+  // 2. Resolve the Instagram Business Account ID from instagram_accounts table
+  const { data: igAccount } = await admin
+    .from('instagram_accounts')
+    .select('ig_user_id')
+    .eq('creator_id', conversation.creator_id)
+    .maybeSingle()
 
-  if (!pageId) {
-    try {
-      const meRes = await fetch(`${IG_API}/me?access_token=${accessToken}`)
-      if (meRes.ok) {
-        const meData = await meRes.json() as { id?: string; name?: string }
-        pageId = meData.id ?? null
-        if (pageId) {
-          // Cache for all future calls — fire and forget
-          admin
-            .from('integrations')
-            .update({ meta: { ...meta, page_id: pageId } })
-            .eq('creator_id', conversation.creator_id)
-            .eq('platform', 'instagram')
-            .then(() => console.log(`[dm-reply] cached page_id=${pageId}`))
-            .catch((err: unknown) => console.warn('[dm-reply] failed to cache page_id:', err))
-        }
-      } else {
-        console.warn('[dm-reply] /me lookup failed:', await meRes.text())
-      }
-    } catch (err) {
-      console.warn('[dm-reply] /me fetch error:', err)
-    }
-  }
-
-  if (!pageId) {
-    console.error('[dm-reply] could not resolve page_id for creator:', conversation.creator_id)
+  if (!igAccount?.ig_user_id) {
+    console.error('[dm-reply] no instagram_accounts row for creator:', conversation.creator_id)
     return NextResponse.json(
-      { error: 'Could not resolve Facebook Page ID — ensure the token is a Page Access Token' },
+      { error: 'Instagram account not found — ensure Instagram is connected in Settings' },
       { status: 422 },
     )
   }
 
-  // 3. Call Instagram Messaging API via Page endpoint
+  const senderIgUserId = igAccount.ig_user_id
+
+  // 3. Call Instagram Messaging API — sender is the IG Business Account ID
   let igMessageId: string | null = null
   try {
-    const igRes = await fetch(`${IG_API}/${pageId}/messages`, {
+    const igRes = await fetch(`${IG_API}/${senderIgUserId}/messages`, {
       method:  'POST',
       headers: {
         'Content-Type':  'application/json',
