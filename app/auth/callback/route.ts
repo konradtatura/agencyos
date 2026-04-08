@@ -12,20 +12,31 @@ import { getRoleFromUser, roleHome } from '@/lib/auth'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
+  const tokenHash = searchParams.get('token_hash')
+  const type = searchParams.get('type')
   const next = searchParams.get('next')
 
-  if (!code) {
-    return NextResponse.redirect(`${origin}/login?error=missing_code`)
-  }
-
   const supabase = await createClient()
-  const { error } = await supabase.auth.exchangeCodeForSession(code)
 
-  if (error) {
-    console.error('[auth/callback] exchangeCodeForSession error:', error.message)
-    return NextResponse.redirect(
-      `${origin}/login?error=auth_callback_failed`
-    )
+  if (tokenHash && type) {
+    // Invite / magic-link / recovery flow
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: type as Parameters<typeof supabase.auth.verifyOtp>[0]['type'],
+    })
+    if (error) {
+      console.error('[auth/callback] verifyOtp error:', error.message)
+      return NextResponse.redirect(`${origin}/login?error=auth_callback_failed`)
+    }
+  } else if (code) {
+    // OAuth / PKCE code flow
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (error) {
+      console.error('[auth/callback] exchangeCodeForSession error:', error.message)
+      return NextResponse.redirect(`${origin}/login?error=auth_callback_failed`)
+    }
+  } else {
+    return NextResponse.redirect(`${origin}/login?error=missing_code`)
   }
 
   const {
