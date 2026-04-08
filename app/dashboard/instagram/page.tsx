@@ -11,6 +11,7 @@ import PostingCadenceChart, { type CadencePoint } from './posting-cadence-chart'
 import NetFollowersChart from './net-followers-chart'
 import FollowerSourceBreakdown from './follower-source-breakdown'
 import ContentFunnelChart, { type FunnelData } from './content-funnel-chart'
+import ExportButton from './export-button'
 
 const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000
 
@@ -264,7 +265,9 @@ export default async function InstagramPage() {
       <PageHeader
         title="Instagram Analytics"
         subtitle={ig_username ? `@${ig_username}` : 'Connect Instagram in Settings to get started.'}
-      />
+      >
+        {connected && hasData && <ExportButton />}
+      </PageHeader>
 
       <SyncBar initial={syncStatus} autoSync={autoSync} />
 
