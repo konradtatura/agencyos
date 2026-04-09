@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getCreatorId } from '@/lib/get-creator-id'
 import PageHeader from '@/components/ui/page-header'
 import { isTokenExpired } from '@/lib/instagram/token'
 import DisconnectButton from './disconnect-button'
@@ -59,9 +59,6 @@ function IntegrationRow({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function SettingsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
   type IgIntegration = {
     status:     string
     expires_at: string | null
@@ -71,31 +68,27 @@ export default async function SettingsPage() {
   let integration: IgIntegration | null = null
   let ghlLocationId: string | null = null
 
-  if (user) {
-    // Admin client bypasses RLS — identity already verified by getUser() above.
-    const admin = createAdminClient()
+  const admin = createAdminClient()
+  const creatorId = await getCreatorId()
 
-    // Base profile — ghl_location_id is a stable column, always query it separately
-    // so that missing whop columns (migration not yet applied) never break this fetch.
+  if (creatorId) {
     const { data: profile } = await admin
       .from('creator_profiles')
-      .select('id, ghl_location_id')
-      .eq('user_id', user.id)
+      .select('ghl_location_id')
+      .eq('id', creatorId)
       .maybeSingle()
 
-    if (profile?.id) {
-      ghlLocationId = profile.ghl_location_id ?? null
+    ghlLocationId = profile?.ghl_location_id ?? null
 
-      const { data } = await admin
-        .from('integrations')
-        .select('status, expires_at, meta')
-        .eq('creator_id', profile.id)
-        .eq('platform', 'instagram')
-        .maybeSingle()
+    const { data } = await admin
+      .from('integrations')
+      .select('status, expires_at, meta')
+      .eq('creator_id', creatorId)
+      .eq('platform', 'instagram')
+      .maybeSingle()
 
-      if (data) {
-        integration = data as IgIntegration
-      }
+    if (data) {
+      integration = data as IgIntegration
     }
   }
 

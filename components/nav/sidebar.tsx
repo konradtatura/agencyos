@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   MessageSquare,
   LayoutList,
+  CalendarDays,
   DollarSign,
   UserPlus,
   PhoneCall,
@@ -97,7 +98,8 @@ function creatorNav(dmUnreadCount: number, tallyNewCount: number = 0): NavSectio
       title: 'Sales',
       items: [
         { href: '/dashboard/dms',     icon: MessageSquare, label: 'DM Inbox', badge: dmUnreadCount },
-        { href: '/dashboard/crm',     icon: LayoutList,    label: 'CRM'                            },
+        { href: '/dashboard/crm',      icon: LayoutList,    label: 'CRM'                            },
+        { href: '/dashboard/calendar', icon: CalendarDays, label: 'Calendar'                       },
         { href: '/dashboard/metrics', icon: TrendingUp,    label: 'Metrics'                        },
         { href: '/dashboard/revenue', icon: DollarSign,    label: 'Revenue'                        },
       ],

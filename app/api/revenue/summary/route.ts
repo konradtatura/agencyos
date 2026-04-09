@@ -142,6 +142,8 @@ export async function GET(req: Request) {
   }
   const monthly = Array.from(monthlyMap.entries()).map(([month, v]) => ({ month, ...v }))
 
+  console.log('[revenue/summary] fromDate:', fromDate, '| totalSales:', rows.length, '| recurringCount:', rows.filter((r) => r.payment_type === 'recurring').length)
+
   const summary: RevenueSummary = {
     period:       { from, to },
     cashCollected,

@@ -8,7 +8,7 @@ import {
 } from 'recharts'
 import {
   Users, Phone, Eye, DollarSign, TrendingUp, TrendingDown,
-  Loader2, Globe, Monitor, Smartphone, Tablet, Minus,
+  Loader2, Globe, Monitor, Smartphone, Tablet, Minus, X,
 } from 'lucide-react'
 import type { VslMetricsResponse } from '@/app/api/metrics/vsl/route'
 import type { FunnelMetricsResponse } from '@/app/api/metrics/funnel/route'
@@ -302,6 +302,7 @@ export default function MetricsDashboard() {
   const [vslData, setVslData]       = useState<VslMetricsResponse | null>(null)
   const [funnelData, setFunnelData] = useState<FunnelMetricsResponse | null>(null)
   const [loading, setLoading]       = useState(true)
+  const [trackingBannerDismissed, setTrackingBannerDismissed] = useState(false)
 
   // Fetch distinct funnel names once on mount
   useEffect(() => {
@@ -487,6 +488,26 @@ export default function MetricsDashboard() {
         {loading && <Loader2 size={13} className="animate-spin text-white/30" />}
       </div>
 
+      {/* ── Tracking script banner ────────────────────────────────────────── */}
+      {!loading && totalVisitors === 0 && (crm?.booked ?? 0) > 0 && !trackingBannerDismissed && (
+        <div
+          className="flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-[13px]"
+          style={{
+            backgroundColor: 'rgba(245,158,11,0.08)',
+            border: '1px solid rgba(245,158,11,0.15)',
+            color: '#fbbf24',
+          }}
+        >
+          <span>Install the tracking script on your funnel pages to see visitor analytics.</span>
+          <button
+            onClick={() => setTrackingBannerDismissed(true)}
+            className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* ── Section 1: KPI Bar ────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {loading ? (
@@ -531,6 +552,31 @@ export default function MetricsDashboard() {
         )}
       </div>
 
+      {/* ── CRM Funnel ───────────────────────────────────────────────────── */}
+      {!loading && crm && (crm.booked > 0 || crm.showed > 0 || crm.closed_won > 0) && (
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+          <SectionHeader icon={<Phone size={13} />} label="CRM Funnel" />
+          <div className="space-y-0">
+            {crmSteps.map((step, i) => (
+              <div key={step.key}>
+                <FunnelRow
+                  title={step.title}
+                  count={step.count}
+                  maxCount={crm.booked}
+                  barColor={step.accentColor}
+                  subValue={step.subLabel}
+                  icon={step.icon}
+                  isLast={i === crmSteps.length - 1}
+                />
+                {i < crmSteps.length - 1 && (
+                  <FunnelConnector pct={step.convNext} />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Section 2: Visual Funnel ──────────────────────────────────────── */}
       <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
         <SectionHeader icon={<TrendingUp size={13} />} label="Conversion Funnel" />
@@ -548,7 +594,7 @@ export default function MetricsDashboard() {
             )
           }
 
-          if (steps.length === 0 && (crm?.booked ?? 0) === 0) {
+          if (steps.length === 0 && (crm?.booked ?? 0) === 0 && (crm?.showed ?? 0) === 0 && (crm?.closed_won ?? 0) === 0) {
             return (
               <div className="flex h-32 items-center justify-center text-white/20 text-sm">
                 No funnel data for this period
