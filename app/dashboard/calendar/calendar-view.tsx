@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, Calendar, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Calendar, X, RefreshCw } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -198,6 +198,8 @@ export default function CalendarView({ leads }: { leads: Lead[] }) {
   const [year,  setYear]  = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
   const [selected, setSelected] = useState<Lead | null>(null)
+  const [syncing,  setSyncing]  = useState(false)
+  const [syncMsg,  setSyncMsg]  = useState<string | null>(null)
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
@@ -273,13 +275,42 @@ export default function CalendarView({ leads }: { leads: Lead[] }) {
           Today
         </button>
 
-        {/* Stat pills */}
-        <div className="ml-auto flex flex-wrap gap-2">
+        {/* Stat pills + sync button */}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <StatPill label={`${callsCount} call${callsCount !== 1 ? 's' : ''} this month`} color="#60a5fa" bg="rgba(37,99,235,0.12)" />
           <StatPill label={`${showedCount} showed`} color="#fbbf24" bg="rgba(245,158,11,0.12)" />
           <StatPill label={`${closedCount} closed`} color="#34d399" bg="rgba(16,185,129,0.12)" />
+          <button
+            onClick={async () => {
+              setSyncing(true)
+              setSyncMsg(null)
+              try {
+                const res = await fetch('/api/ghl/sync-appointments', { method: 'POST' })
+                const data = await res.json() as { synced?: number; error?: string }
+                if (res.ok) {
+                  setSyncMsg(`Synced ${data.synced} appointments`)
+                  window.location.reload()
+                } else {
+                  setSyncMsg(data.error ?? 'Sync failed')
+                }
+              } catch {
+                setSyncMsg('Network error')
+              } finally {
+                setSyncing(false)
+              }
+            }}
+            disabled={syncing}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50"
+            style={{ backgroundColor: 'rgba(37,99,235,0.15)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.2)' }}
+          >
+            <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
+            {syncing ? 'Syncing…' : 'Sync GHL'}
+          </button>
         </div>
       </div>
+      {syncMsg && (
+        <p className="mb-4 text-[12px] text-[#9ca3af]">{syncMsg}</p>
+      )}
 
       {/* ── Calendar grid ────────────────────────────────────────────── */}
       <div

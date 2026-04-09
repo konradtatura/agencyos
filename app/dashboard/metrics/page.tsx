@@ -1,20 +1,19 @@
 import MetricsDashboard from './MetricsDashboard'
 import TrackingScriptPanel from './TrackingScriptPanel'
 import { TrendingUp } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getCreatorId } from '@/lib/get-creator-id'
 
 async function getLocationId(): Promise<string | null> {
   try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return null
+    const creatorId = await getCreatorId()
+    if (!creatorId) return null
 
     const admin = createAdminClient()
     const { data: profile } = await admin
       .from('creator_profiles')
       .select('ghl_location_id')
-      .eq('user_id', user.id)
+      .eq('id', creatorId)
       .maybeSingle()
 
     return profile?.ghl_location_id ?? null
