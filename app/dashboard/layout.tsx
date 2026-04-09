@@ -4,7 +4,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import Sidebar from '@/components/nav/sidebar'
 import { isTokenExpired } from '@/lib/instagram/token'
 import { AlertTriangle } from 'lucide-react'
-import ImpersonationBanner from './impersonation-banner'
 import { getSessionUser } from '@/lib/get-session-user'
 import { getCreatorId } from '@/lib/get-creator-id'
 
@@ -25,22 +24,13 @@ export default async function DashboardLayout({
   const admin = createAdminClient()
 
   // ── Impersonation ──────────────────────────────────────────────────────────
-  let impersonatingId:   string | null = null
-  let impersonatingName: string | null = null
+  let impersonatingId: string | null = null
 
   if (user.role === 'super_admin') {
     const cookieStore = await cookies()
     const impersonated = cookieStore.get('impersonating_creator_id')?.value
     if (impersonated) {
       impersonatingId = impersonated
-      try {
-        const { data: cp } = await admin
-          .from('creator_profiles')
-          .select('name')
-          .eq('id', impersonated)
-          .single()
-        impersonatingName = cp?.name ?? 'Unknown Creator'
-      } catch { /* silently ignore */ }
     }
   }
 
@@ -62,6 +52,18 @@ export default async function DashboardLayout({
   let creatorName:  string | undefined
   let creatorNiche: string | undefined
   let igTokenExpiring = false
+
+  if (user.role === 'super_admin' && impersonatingId) {
+    try {
+      const { data: cp } = await admin
+        .from('creator_profiles')
+        .select('name, niche')
+        .eq('id', impersonatingId)
+        .single()
+      creatorName  = cp?.name  ?? undefined
+      creatorNiche = cp?.niche ?? undefined
+    } catch { /* silently ignore */ }
+  }
 
   if (user.role === 'creator') {
     try {
@@ -93,12 +95,6 @@ export default async function DashboardLayout({
 
   return (
     <div>
-      {impersonatingId && impersonatingName && (
-        <ImpersonationBanner
-          creatorId={impersonatingId}
-          creatorName={impersonatingName}
-        />
-      )}
       <Sidebar
         variant="creator"
         user={{
@@ -109,6 +105,7 @@ export default async function DashboardLayout({
         creatorName={creatorName}
         creatorNiche={creatorNiche}
         dmUnreadCount={dmUnreadCount}
+        isImpersonating={!!impersonatingId}
       />
       <main
         style={{
@@ -116,7 +113,6 @@ export default async function DashboardLayout({
           minHeight:       '100vh',
           backgroundColor: '#0a0f1e',
           padding:         '32px',
-          paddingTop:      impersonatingId ? '72px' : '32px',
         }}
       >
         {igTokenExpiring && (

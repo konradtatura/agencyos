@@ -2,16 +2,14 @@
 
 import { useState } from 'react'
 import { LayoutDashboard, Loader2 } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 
 export default function ImpersonateButton({ creatorId }: { creatorId: string }) {
-  const router = useRouter()
   const [loading, setLoading] = useState(false)
 
   async function handleClick() {
     setLoading(true)
     await fetch(`/api/admin/creators/${creatorId}/impersonate`, { method: 'POST' })
-    router.push('/dashboard')
+    window.location.href = '/dashboard'
   }
 
   return (

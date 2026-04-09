@@ -210,6 +210,8 @@ interface SidebarProps {
   dmUnreadCount?: number
   /** Tally submissions in last 24h badge (creator variant only) */
   tallyNewCount?: number
+  /** When true (super_admin impersonating), show "Switch to Agency View" button */
+  isImpersonating?: boolean
 }
 
 export default function Sidebar({
@@ -219,6 +221,7 @@ export default function Sidebar({
   creatorNiche,
   dmUnreadCount = 0,
   tallyNewCount = 0,
+  isImpersonating = false,
 }: SidebarProps) {
   const pathname = usePathname()
   const router   = useRouter()
@@ -351,6 +354,39 @@ export default function Sidebar({
           ))}
         </div>
       </nav>
+
+      {/* ── Switch to Agency View ──────────────────────────────────────── */}
+      {isImpersonating && (
+        <div className="flex-shrink-0 px-3">
+          <div style={{ height: '1px', backgroundColor: 'rgba(255,255,255,0.05)', margin: '8px 0' }} />
+          <button
+            onClick={async () => {
+              await fetch('/api/admin/stop-impersonating', { method: 'POST' })
+              window.location.href = '/admin'
+            }}
+            className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-[12.5px] font-semibold transition-colors"
+            style={{
+              backgroundColor: 'rgba(124,58,237,0.12)',
+              color: '#a78bfa',
+              border: '1px solid rgba(124,58,237,0.2)',
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(124,58,237,0.2)'
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(124,58,237,0.12)'
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+              strokeLinejoin="round" aria-hidden>
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+              <polyline points="9,22 9,12 15,12 15,22"/>
+            </svg>
+            Switch to Agency View
+          </button>
+        </div>
+      )}
 
       {/* ── User footer ────────────────────────────────────────────────── */}
       <div
