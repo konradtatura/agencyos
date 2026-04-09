@@ -39,6 +39,7 @@ interface GhlPayload {
 
   // Sub-account / location mapping → creator
   location_id?: string
+  offer_tier?: string
 
   // Custom fields — GHL sends these in different shapes depending on version
   custom_fields?: GhlCustomField[]
@@ -171,6 +172,9 @@ export async function POST(req: NextRequest) {
           booked_at: bookedAt,
           tally_answers: tallyAnswers,
           phone: phone ?? undefined,
+          offer_tier: (['ht', 'mt', 'lt'].includes(body.offer_tier ?? ''))
+            ? (body.offer_tier as 'ht' | 'mt' | 'lt')
+            : undefined,
           updated_at: new Date().toISOString(),
         })
         .eq('id', existingLeadId)
@@ -198,7 +202,9 @@ export async function POST(req: NextRequest) {
           email,
           phone,
           stage: 'call_booked',
-          offer_tier: 'ht',           // VSL funnel → high ticket by default
+          offer_tier: (['ht', 'mt', 'lt'].includes(body.offer_tier ?? ''))
+            ? (body.offer_tier as 'ht' | 'mt' | 'lt')
+            : 'ht',
           pipeline_type: 'main',
           lead_source_type: 'vsl_funnel',
           ghl_contact_id: ghlContactId,
