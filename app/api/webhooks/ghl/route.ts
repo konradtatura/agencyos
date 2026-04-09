@@ -78,29 +78,37 @@ async function resolveGhlCreatorId(
   supabase: ReturnType<typeof createAdminClient>,
   payloadLocationId: string | undefined,
 ): Promise<string | null> {
-  // Use payload location_id, falling back to the env-configured GHL_LOCATION_ID
   const locationId = payloadLocationId ?? process.env.GHL_LOCATION_ID
 
-  // 1. Try matching location_id stored in integrations table
+  // 1. Match location_id stored in creator_profiles (correct table)
   if (locationId) {
     const { data } = await supabase
-      .from('integrations')
-      .select('creator_id')
-      .eq('platform', 'ghl')
-      .eq('status', 'active')
+      .from('creator_profiles')
+      .select('id')
       .eq('ghl_location_id', locationId)
       .maybeSingle()
 
-    if (data?.creator_id) {
-      console.log(`[ghl-webhook] resolved creator_id via integrations table (location_id=${locationId}): ${data.creator_id}`)
-      return data.creator_id
+    if (data?.id) {
+      console.log(`[ghl-webhook] resolved creator via creator_profiles (location_id=${locationId}): ${data.id}`)
+      return data.id
     }
   }
 
-  // 2. Fall back to env-configured default creator
+  // 2. If only one creator exists, use them as default (single-creator agencies)
+  const { data: allCreators } = await supabase
+    .from('creator_profiles')
+    .select('id')
+    .limit(2)
+
+  if (allCreators?.length === 1) {
+    console.log(`[ghl-webhook] single creator — using as default: ${allCreators[0].id}`)
+    return allCreators[0].id
+  }
+
+  // 3. Fall back to env var
   const defaultId = process.env.GHL_DEFAULT_CREATOR_ID
   if (defaultId) {
-    console.log(`[ghl-webhook] resolved creator_id via GHL_DEFAULT_CREATOR_ID: ${defaultId}`)
+    console.log(`[ghl-webhook] using GHL_DEFAULT_CREATOR_ID: ${defaultId}`)
     return defaultId
   }
 

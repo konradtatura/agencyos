@@ -187,6 +187,9 @@ function GhlKeySection() {
   const [saving, setSaving]         = useState(false)
   const [success, setSuccess]       = useState(false)
   const [error, setError]           = useState<string | null>(null)
+  const [origin, setOrigin]         = useState('')
+
+  useEffect(() => { setOrigin(window.location.origin) }, [])
 
   useEffect(() => {
     fetch('/api/admin/ghl/key')
@@ -348,6 +351,38 @@ function GhlKeySection() {
         GHL Location IDs are set per creator in the{' '}
         <span className="text-[#6b7280]">Creators page</span>.
       </p>
+
+      {/* Webhook URL */}
+      <div className="mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <p className="mb-2 text-[12px] font-medium text-[#9ca3af]">Webhook URL</p>
+        <p className="mb-2 text-[11.5px] text-[#6b7280]">
+          Add this URL as a webhook in your GHL workflow (Automation → Webhooks) to sync booked appointments.
+        </p>
+        <div className="flex items-center gap-2">
+          <code
+            className="flex-1 truncate rounded-lg px-3 py-2 text-[11.5px] font-mono"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              color: '#d1d5db',
+            }}
+          >
+            {origin ? `${origin}/api/webhooks/ghl` : 'Loading…'}
+          </code>
+          <button
+            type="button"
+            onClick={() => navigator.clipboard.writeText(`${origin}/api/webhooks/ghl`)}
+            className="shrink-0 rounded-lg px-3 py-2 text-[12px] font-medium transition-colors"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.06)',
+              color: '#9ca3af',
+              border: '1px solid rgba(255,255,255,0.08)',
+            }}
+          >
+            Copy
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -25,14 +25,26 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
-function ghlConfig(): { apiKey: string; baseUrl: string } | null {
-  const apiKey  = process.env.GHL_API_KEY
+async function ghlConfig(): Promise<{ apiKey: string; baseUrl: string } | null> {
   const baseUrl = process.env.GHL_BASE_URL ?? 'https://services.leadconnectorhq.com'
-  if (!apiKey) {
-    console.warn('[ghl-sync] GHL_API_KEY is not set — skipping GHL push')
+
+  try {
+    const admin = createAdminClient()
+    const { data } = await admin
+      .from('agency_config')
+      .select('ghl_api_key')
+      .limit(1)
+      .maybeSingle()
+
+    if (!data?.ghl_api_key) {
+      console.warn('[ghl-sync] No GHL API key found in agency_config — skipping')
+      return null
+    }
+    return { apiKey: data.ghl_api_key, baseUrl }
+  } catch (err) {
+    console.error('[ghl-sync] Failed to read GHL config from DB:', err)
     return null
   }
-  return { apiKey, baseUrl }
 }
 
 // ── Stage → tag map ────────────────────────────────────────────────────────
@@ -123,7 +135,7 @@ async function addTagToContact(
  * @param newStage - The stage value being set (e.g. 'closed_won')
  */
 export async function pushStageToGHL(leadId: string, newStage: string): Promise<void> {
-  const cfg = ghlConfig()
+  const cfg = await ghlConfig()
   if (!cfg) return
 
   const tag = STAGE_TAG_MAP[newStage]
