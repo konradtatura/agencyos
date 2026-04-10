@@ -3,26 +3,45 @@ import { getCreatorId } from '@/lib/get-creator-id'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const TAG_STAGE_MAP: Record<string, { stage: string; offer_tier?: string }> = {
-  'new lead':                  { stage: 'qualifying' },
-  'dm':                        { stage: 'qualifying' },
-  'qualified':                 { stage: 'qualified' },
-  'vsl qualified application': { stage: 'qualified' },
-  'booked':                    { stage: 'call_booked' },
-  'calendly':                  { stage: 'call_booked' },
-  'call lead':                 { stage: 'call_booked' },
-  'mt call':                   { stage: 'call_booked', offer_tier: 'mt' },
-  'mt budget':                 { stage: 'qualifying',  offer_tier: 'mt' },
-  'call picked up':            { stage: 'showed' },
-  'no answer':                 { stage: 'no_show' },
-  'no show':                   { stage: 'no_show' },
-  'no show follow up':         { stage: 'no_show' },
-  'closed':                    { stage: 'closed_won' },
-  'closed mid-ticket':         { stage: 'closed_won', offer_tier: 'mt' },
-  'no close':                  { stage: 'closed_lost' },
-  "didn't close":              { stage: 'closed_lost' },
-  'disqualified':              { stage: 'disqualified' },
-  'dwcall':                    { stage: 'qualifying' },
-  'bio':                       { stage: 'qualifying' },
+  // Disqualified
+  'disqualified':              { stage: 'Disqualified' },
+  'bio':                       { stage: 'Disqualified' },
+
+  // MT Budget
+  'mt budget':                 { stage: 'MT Budget',        offer_tier: 'mt' },
+  'dwcall':                    { stage: 'MT Budget',        offer_tier: 'mt' },
+
+  // Qualified
+  'qualified':                 { stage: 'Qualified' },
+  'vsl qualified application': { stage: 'Qualified' },
+  'new lead':                  { stage: 'Qualified' },
+  'dm':                        { stage: 'Qualified' },
+
+  // Booked MT Call
+  'mt call':                   { stage: 'Booked MT Call',  offer_tier: 'mt' },
+
+  // Booked (HT)
+  'booked':                    { stage: 'Booked' },
+  'calendly':                  { stage: 'Booked' },
+  'call lead':                 { stage: 'Booked' },
+
+  // No-show
+  'no answer':                 { stage: 'No-show' },
+  'no show':                   { stage: 'No-show' },
+  'no show follow up':         { stage: 'No-show' },
+
+  // No-close
+  'no close':                  { stage: 'No-close' },
+  "didn't close":              { stage: 'No-close' },
+
+  // Closed (Mid Ticket)
+  'closed mid-ticket':         { stage: 'High Ticket PiF', offer_tier: 'mt' },
+
+  // Closed (High Ticket)
+  'closed':                    { stage: 'High Ticket PiF', offer_tier: 'ht' },
+
+  // Call picked up = showed
+  'call picked up':            { stage: 'Booked' },
 }
 
 interface GhlContact {
@@ -41,10 +60,11 @@ interface GhlContactsResponse {
 
 function resolveStage(tags: string[]): { stage: string; offer_tier: string } {
   const PRIORITY = [
-    'qualifying', 'qualified', 'call_booked', 'showed',
-    'no_show', 'closed_won', 'closed_lost', 'disqualified',
+    'Qualified', 'MT Budget', 'Booked MT Call', 'Booked',
+    'No-show', 'No-close', 'High Ticket PiF', 'High Ticket Split',
+    'Disqualified',
   ]
-  let bestStage = 'qualifying'
+  let bestStage = 'Qualified'
   let bestTier = 'ht'
   let bestPriority = -1
 
