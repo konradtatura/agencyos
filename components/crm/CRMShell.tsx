@@ -1,10 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Kanban, List, TrendingDown, AlertTriangle, Users, Clock } from 'lucide-react'
+import { Plus, Kanban, List, AlertTriangle, Users, Clock } from 'lucide-react'
 import type { PipelineStage, LeadWithRelations, Lead } from '@/types/crm'
 import MainKanban from './MainKanban'
-import DowngradeKanban from './DowngradeKanban'
 import LeadListView from './LeadListView'
 import LeadDrawer from './LeadDrawer'
 import NewLeadModal from './NewLeadModal'
@@ -22,29 +21,6 @@ function TabBtn({
       style={{
         display: 'flex', alignItems: 'center', gap: 6,
         padding: '5px 12px', borderRadius: 7, fontSize: 13,
-        fontWeight: active ? 600 : 400,
-        color: active ? '#f9fafb' : '#6b7280',
-        backgroundColor: active ? 'rgba(255,255,255,0.07)' : 'transparent',
-        border: active ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent',
-        cursor: 'pointer', transition: 'all 0.12s',
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
-function PipelineTabBtn({
-  active, onClick, children,
-}: {
-  active: boolean; onClick: () => void; children: React.ReactNode
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 5,
-        padding: '4px 11px', borderRadius: 6, fontSize: 12,
         fontWeight: active ? 600 : 400,
         color: active ? '#f9fafb' : '#6b7280',
         backgroundColor: active ? 'rgba(255,255,255,0.07)' : 'transparent',
@@ -83,7 +59,6 @@ function StatChip({ label, value, color }: { label: string; value: number | null
 
 export default function CRMShell() {
   const [view,         setView]         = useState<'kanban' | 'table'>('kanban')
-  const [pipelineTab,  setPipelineTab]  = useState<'main' | 'downgrade'>('main')
   const [selectedId,   setSelectedId]   = useState<string | null>(null)
   const [newLeadOpen,  setNewLeadOpen]  = useState(false)
   const [refreshKey,   setRefreshKey]   = useState(0)
@@ -91,6 +66,7 @@ export default function CRMShell() {
   // Stages from DB
   const [mainStages,      setMainStages]      = useState<PipelineStage[]>([])
   const [downgradeStages, setDowngradeStages] = useState<PipelineStage[]>([])
+  const [allStages,       setAllStages]       = useState<PipelineStage[]>([])
   const [stagesLoading,   setStagesLoading]   = useState(true)
 
   // Stats
@@ -105,6 +81,9 @@ export default function CRMShell() {
       .then(([main, downgrade]) => {
         if (Array.isArray(main))      setMainStages(main)
         if (Array.isArray(downgrade)) setDowngradeStages(downgrade)
+        if (Array.isArray(main) && Array.isArray(downgrade)) {
+          setAllStages([...main, ...downgrade])
+        }
       })
       .catch(() => {})
       .finally(() => setStagesLoading(false))
@@ -113,7 +92,7 @@ export default function CRMShell() {
   // Load stats (lightweight lead fetch for chips)
   const fetchStats = useCallback(async () => {
     try {
-      const res  = await fetch('/api/crm/leads?pipeline_type=main')
+      const res  = await fetch('/api/crm/leads')
       if (!res.ok) return
       const data: Lead[] = await res.json()
       const now  = new Date()
@@ -145,8 +124,6 @@ export default function CRMShell() {
   const handleLeadCountChange = useCallback((n: number) => {
     setStats((s) => s ? { ...s, total: n } : null)
   }, [])
-
-  const activeStages = pipelineTab === 'main' ? mainStages : downgradeStages
 
   return (
     <>
@@ -224,44 +201,22 @@ export default function CRMShell() {
           </div>
         </div>
 
-        {/* Pipeline sub-tabs (only in kanban mode) */}
-        {view === 'kanban' && (
-          <div style={{ display: 'flex', gap: 4 }}>
-            <PipelineTabBtn active={pipelineTab === 'main'}      onClick={() => setPipelineTab('main')}>
-              <Users size={11} />
-              Main Pipeline
-            </PipelineTabBtn>
-            <PipelineTabBtn active={pipelineTab === 'downgrade'} onClick={() => setPipelineTab('downgrade')}>
-              <TrendingDown size={11} />
-              Downgrade Pipeline
-            </PipelineTabBtn>
-          </div>
-        )}
       </div>
 
       {/* ── Main content ──────────────────────────────────────────────── */}
       {!stagesLoading && (
         <>
-          {view === 'kanban' && pipelineTab === 'main' && (
+          {view === 'kanban' && (
             <MainKanban
-              stages={mainStages}
+              stages={allStages}
               onSelectLead={setSelectedId}
               onLeadCountChange={handleLeadCountChange}
               refreshKey={refreshKey}
             />
           )}
-
-          {view === 'kanban' && pipelineTab === 'downgrade' && (
-            <DowngradeKanban
-              stages={downgradeStages}
-              onSelectLead={setSelectedId}
-              refreshKey={refreshKey}
-            />
-          )}
-
           {view === 'table' && (
             <LeadListView
-              stages={mainStages}
+              stages={allStages}
               onSelectLead={setSelectedId}
               selectedLeadId={selectedId}
               refreshKey={refreshKey}
@@ -273,7 +228,7 @@ export default function CRMShell() {
       {/* ── Drawer ────────────────────────────────────────────────────── */}
       <LeadDrawer
         leadId={selectedId}
-        stages={pipelineTab === 'main' ? mainStages : downgradeStages}
+        stages={allStages}
         onClose={() => setSelectedId(null)}
         onLeadUpdated={handleLeadUpdated}
       />

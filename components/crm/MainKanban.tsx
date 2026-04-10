@@ -34,7 +34,7 @@ export default function MainKanban({ stages, onSelectLead, onLeadCountChange, re
   const fetchLeads = useCallback(async () => {
     setFetchError(null)
     try {
-      const res = await fetch('/api/crm/leads?pipeline_type=main')
+      const res = await fetch('/api/crm/leads')
       if (!res.ok) throw new Error('Failed to fetch leads')
       const data: Lead[] = await res.json()
       setLeads(data)
@@ -116,6 +116,18 @@ export default function MainKanban({ stages, onSelectLead, onLeadCountChange, re
     )
   }
 
+  function stageAccentColor(name: string): string {
+    const s = name.toLowerCase().replace(/[^a-z]/g, '')
+    if (['dmd'].includes(s)) return '#6b7280'
+    if (['qualifying', 'nurture'].includes(s)) return '#6b7280'
+    if (['qualified'].includes(s)) return '#2563eb'
+    if (['callbooked', 'booked'].includes(s)) return '#8b5cf6'
+    if (['showed'].includes(s)) return '#f59e0b'
+    if (['closedwon', 'closed'].includes(s)) return '#10b981'
+    if (['closedlost', 'noshow', 'disqualified', 'dead'].includes(s)) return '#ef4444'
+    return '#374151'
+  }
+
   return (
     <DragDropContext onDragEnd={handleDragEnd}>
       <div
@@ -174,7 +186,13 @@ export default function MainKanban({ stages, onSelectLead, onLeadCountChange, re
           return (
             <div
               key={stage.id}
-              style={{ width: 240, minWidth: 240, flexShrink: 0, display: 'flex', flexDirection: 'column' }}
+              style={{
+                width: 240, minWidth: 240, flexShrink: 0,
+                display: 'flex', flexDirection: 'column',
+                borderTop: `3px solid ${stageAccentColor(stage.name)}`,
+                borderRadius: '0 0 8px 8px',
+                paddingTop: 8,
+              }}
             >
               {/* Column header */}
               <div
@@ -220,7 +238,7 @@ export default function MainKanban({ stages, onSelectLead, onLeadCountChange, re
                     style={{
                       flex: 1, display: 'flex', flexDirection: 'column', gap: 7,
                       padding: '6px 4px', borderRadius: 10, minHeight: 120,
-                      overflowY: 'auto', maxHeight: 'calc(100vh - 290px)',
+                      overflowY: 'auto', maxHeight: 'calc(100vh - 260px)',
                       backgroundColor: snapshot.isDraggingOver ? `${stage.color}10` : 'transparent',
                       border: colLeads.length === 0
                         ? '1.5px dashed rgba(255,255,255,0.07)'
