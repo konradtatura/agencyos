@@ -224,9 +224,8 @@ export async function POST() {
   // Second pass: fetch appointment time for booked leads
   const { data: bookedLeads } = await admin
     .from('leads')
-    .select('id, ghl_contact_id')
+    .select('id, ghl_contact_id, stage')
     .eq('creator_id', creatorId)
-    .eq('stage', 'call_booked')
     .is('booked_at', null)
     .not('ghl_contact_id', 'is', null)
 
