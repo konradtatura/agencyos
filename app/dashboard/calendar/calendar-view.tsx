@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Calendar, X, RefreshCw } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -205,6 +205,11 @@ export default function CalendarView({ leads }: { leads: Lead[] }) {
   const [selected, setSelected] = useState<Lead | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  useEffect(() => {
+    if (!syncMsg) return
+    const t = setTimeout(() => setSyncMsg(null), 5000)
+    return () => clearTimeout(t)
+  }, [syncMsg])
   const [selectedClosers, setSelectedClosers] = useState<Set<string>>(new Set(['all']))
   const [selectedTiers, setSelectedTiers] = useState<Set<string>>(new Set(['ht', 'mt', 'lt']))
 
@@ -261,7 +266,7 @@ export default function CalendarView({ leads }: { leads: Lead[] }) {
 
   const weekEnd = new Date(viewDate)
   weekEnd.setDate(viewDate.getDate() + 6)
-  const weekLabel = `${viewDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekEnd.toLocaleDateString('en-US', { day: 'numeric', year: 'numeric' })}`
+  const weekLabel = `${viewDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`
 
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
@@ -331,7 +336,17 @@ export default function CalendarView({ leads }: { leads: Lead[] }) {
           </div>
         </div>
 
-        {syncMsg && <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>{syncMsg}</p>}
+        {syncMsg && (
+          <p style={{
+            fontSize: 12,
+            color: syncMsg.toLowerCase().includes('error') ||
+                   syncMsg.toLowerCase().includes('unauthorized') ||
+                   syncMsg.toLowerCase().includes('failed') ||
+                   syncMsg.toLowerCase().includes('not set')
+              ? '#f87171' : '#9ca3af',
+            marginBottom: 12
+          }}>{syncMsg}</p>
+        )}
 
         {/* Calendar grid */}
         <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, overflow: 'hidden' }}>
