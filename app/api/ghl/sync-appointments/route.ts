@@ -2,85 +2,6 @@ import { NextResponse } from 'next/server'
 import { getCreatorId } from '@/lib/get-creator-id'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-const TAG_STAGE_MAP: Record<string, { stage: string; offer_tier?: string }> = {
-  // Disqualified
-  'disqualified':              { stage: 'Disqualified' },
-  'bio':                       { stage: 'Disqualified' },
-
-  // MT Budget
-  'mt budget':                 { stage: 'MT Budget',        offer_tier: 'mt' },
-  'dwcall':                    { stage: 'MT Budget',        offer_tier: 'mt' },
-
-  // Qualified
-  'qualified':                 { stage: 'Qualified' },
-  'vsl qualified application': { stage: 'Qualified' },
-  'new lead':                  { stage: 'Qualified' },
-  'dm':                        { stage: 'Qualified' },
-
-  // Booked MT Call
-  'mt call':                   { stage: 'Booked MT Call',  offer_tier: 'mt' },
-
-  // Booked (HT)
-  'booked':                    { stage: 'Booked' },
-  'calendly':                  { stage: 'Booked' },
-  'call lead':                 { stage: 'Booked' },
-
-  // No-show
-  'no answer':                 { stage: 'No-show' },
-  'no show':                   { stage: 'No-show' },
-  'no show follow up':         { stage: 'No-show' },
-
-  // No-close
-  'no close':                  { stage: 'No-close' },
-  "didn't close":              { stage: 'No-close' },
-
-  // Closed (Mid Ticket)
-  'closed mid-ticket':         { stage: 'High Ticket PiF', offer_tier: 'mt' },
-
-  // Closed (High Ticket)
-  'closed':                    { stage: 'High Ticket PiF', offer_tier: 'ht' },
-
-  // Call picked up = showed
-  'call picked up':            { stage: 'Booked' },
-}
-
-interface GhlContact {
-  id: string
-  firstName?: string
-  lastName?: string
-  name?: string
-  email?: string
-  phone?: string
-  tags?: string[]
-}
-
-interface GhlContactsResponse {
-  contacts?: GhlContact[]
-}
-
-function resolveStage(tags: string[]): { stage: string; offer_tier: string } {
-  const PRIORITY = [
-    'Qualified', 'MT Budget', 'Booked MT Call', 'Booked',
-    'No-show', 'No-close', 'High Ticket PiF', 'High Ticket Split',
-    'Disqualified',
-  ]
-  let bestStage = 'Qualified'
-  let bestTier = 'ht'
-  let bestPriority = -1
-
-  for (const tag of tags) {
-    const mapping = TAG_STAGE_MAP[tag.toLowerCase().trim()]
-    if (!mapping) continue
-    const priority = PRIORITY.indexOf(mapping.stage)
-    if (priority > bestPriority) {
-      bestPriority = priority
-      bestStage = mapping.stage
-      if (mapping.offer_tier) bestTier = mapping.offer_tier
-    }
-  }
-  return { stage: bestStage, offer_tier: bestTier }
-}
-
 export async function POST() {
   const creatorId = await getCreatorId()
   if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -94,88 +15,82 @@ export async function POST() {
     .eq('id', creatorId)
     .maybeSingle()
 
-  const apiKey = profile?.ghl_api_key
+  const apiKey    = profile?.ghl_api_key
   const locationId = profile?.ghl_location_id
 
   console.log('[ghl/sync] apiKey present:', !!apiKey, 'locationId:', locationId)
 
-  if (!apiKey) {
-    return NextResponse.json({
-      error: 'GHL Private Integration key not set. Go to Settings and add it.',
-    }, { status: 400 })
-  }
-  if (!locationId) {
-    return NextResponse.json({ error: 'GHL Location ID not set' }, { status: 400 })
-  }
+  if (!apiKey) return NextResponse.json({ error: 'GHL Private Integration key not set. Go to Settings.' }, { status: 400 })
+  if (!locationId) return NextResponse.json({ error: 'GHL Location ID not set' }, { status: 400 })
 
-  const headers = {
-    Authorization: `Bearer ${apiKey}`,
-    Version: '2021-07-28',
-  }
+  const headers = { Authorization: `Bearer ${apiKey}`, Version: '2021-07-28' }
 
-  const allContacts: GhlContact[] = []
-  let page = 0
-  const limit = 100
-  let lastContactId = ''
+  // Offer tier mapping by stage name
+  const MT_STAGES = new Set(['MT Budget', 'Mid Ticket PiF', 'Mid Ticket Split', 'Booked MT Call', 'Low Ticket'])
 
+  // Fetch all opportunities (paginated)
+  const allOpps: {
+    id: string
+    pipelineStageName: string
+    monetaryValue?: number
+    contact: {
+      id: string
+      name?: string
+      firstName?: string
+      lastName?: string
+      email?: string
+      phone?: string
+    }
+  }[] = []
+
+  let page = 1
   while (true) {
-    const url = page === 0
-      ? `${baseUrl}/contacts/?locationId=${locationId}&limit=${limit}`
-      : `${baseUrl}/contacts/?locationId=${locationId}&limit=${limit}&startAfterId=${lastContactId}`
+    const url = `${baseUrl}/opportunities/search?location_id=${locationId}&limit=100&page=${page}`
     let res: Response
     try {
       res = await fetch(url, { headers })
     } catch (err) {
       console.error('[ghl/sync] fetch error:', err)
-      break
+      return NextResponse.json({ error: 'Failed to reach GHL API' }, { status: 500 })
     }
 
     if (!res.ok) {
       const body = await res.text()
-      console.error('[ghl/sync] contacts fetch failed:', res.status, body)
+      console.error('[ghl/sync] opportunities fetch failed:', res.status, body)
       return NextResponse.json({ error: `GHL API error: ${res.status}` }, { status: 500 })
     }
 
-    const data = await res.json() as GhlContactsResponse
-    const contacts = data.contacts ?? []
-
-    if (page === 0) {
-      console.log('[ghl/sync] page 0 sample — first contact tags:', contacts[0]?.tags ?? 'NO TAGS')
+    const data = await res.json() as {
+      opportunities?: typeof allOpps
+      meta?: { total?: number; nextPage?: number | null; currentPage?: number }
     }
 
-    console.log('[ghl/sync] page', page, ':', contacts.length, 'contacts')
-    allContacts.push(...contacts)
+    const opps = data.opportunities ?? []
+    allOpps.push(...opps)
+    console.log(`[ghl/sync] page ${page}: ${opps.length} opportunities (total so far: ${allOpps.length})`)
 
-    if (contacts.length > 0) {
-      lastContactId = contacts[contacts.length - 1].id
-    }
-
-    if (contacts.length < limit) break
-    if (allContacts.length >= 1000) break
+    if (!data.meta?.nextPage || opps.length === 0) break
     page++
+    if (allOpps.length >= 500) break
   }
 
-  console.log('[ghl/sync] total contacts:', allContacts.length)
-
-  const contactsWithTags = allContacts.filter(c =>
-    (c.tags ?? []).some(t => TAG_STAGE_MAP[t.toLowerCase().trim()])
-  )
-
-  console.log('[ghl/sync] contacts with recognized tags:', contactsWithTags.length)
+  console.log('[ghl/sync] total opportunities:', allOpps.length)
 
   let synced = 0, created = 0, updated = 0, skipped = 0
 
-  for (const contact of contactsWithTags) {
-    const tags = contact.tags ?? []
-    const { stage, offer_tier } = resolveStage(tags)
+  for (const opp of allOpps) {
+    const stage      = opp.pipelineStageName
+    const offer_tier = MT_STAGES.has(stage) ? 'mt' : 'ht'
+    const contact    = opp.contact
+    const ghlId      = contact.id
 
-    const parts = [contact.firstName, contact.lastName].filter(Boolean)
+    const parts   = [contact.firstName, contact.lastName].filter(Boolean)
     const fullName = parts.join(' ')
-    const name = (contact.name ?? fullName) || 'Unknown'
-    const email = contact.email ? contact.email.toLowerCase().trim() : null
-    const phone = contact.phone ?? null
-    const ghlId = contact.id
+    const name     = (contact.name ?? fullName) || 'Unknown'
+    const email    = contact.email?.toLowerCase().trim() ?? null
+    const phone    = contact.phone ?? null
 
+    // Check existing by ghl_contact_id or email
     let existingId: string | null = null
 
     const { data: byGhl } = await admin
@@ -207,33 +122,25 @@ export async function POST() {
       const { data: newLead, error } = await admin
         .from('leads')
         .insert({
-          creator_id: creatorId,
-          name,
-          email,
-          phone,
-          stage,
-          offer_tier,
-          pipeline_type: 'main',
+          creator_id:       creatorId,
+          name, email, phone, stage, offer_tier,
+          pipeline_type:    'main',
           lead_source_type: 'organic',
-          ghl_contact_id: ghlId,
+          ghl_contact_id:   ghlId,
         })
         .select('id')
         .single()
 
       if (error) {
-        console.error('[ghl/sync] insert error:', error.message)
+        console.error('[ghl/sync] insert error:', error.message, 'stage:', stage)
         skipped++
         continue
       }
 
       await admin.from('lead_stage_history').insert({
-        lead_id: newLead.id,
-        from_stage: null,
-        to_stage: stage,
-        changed_by: null,
-        note: 'Imported via GHL contact sync',
+        lead_id: newLead.id, from_stage: null, to_stage: stage,
+        changed_by: null, note: 'Imported via GHL opportunity sync',
       })
-
       created++
       synced++
     }
@@ -241,20 +148,20 @@ export async function POST() {
 
   console.log('[ghl/sync] done — synced:', synced, 'created:', created, 'updated:', updated, 'skipped:', skipped)
 
-  // Second pass: fetch appointment time for booked leads
+  // Second pass: fetch appointment times for booked leads without booked_at
+  const GHL_TO_AGENCYOS_CLOSER: Record<string, string> = {
+    'vAQWK7yqxxHHCKgEfk1m': '037464a8-a9a8-4402-b193-174de07a73f7',
+  }
+
   const { data: bookedLeads } = await admin
     .from('leads')
     .select('id, ghl_contact_id, stage')
     .eq('creator_id', creatorId)
+    .in('stage', ['Booked', 'Booked MT Call'])
     .is('booked_at', null)
     .not('ghl_contact_id', 'is', null)
 
-  console.log('[ghl/sync] fetching appointment times for',
-    bookedLeads?.length ?? 0, 'booked leads')
-
-  const GHL_TO_AGENCYOS_CLOSER: Record<string, string> = {
-    'vAQWK7yqxxHHCKgEfk1m': '037464a8-a9a8-4402-b193-174de07a73f7',
-  }
+  console.log('[ghl/sync] fetching appointment times for', bookedLeads?.length ?? 0, 'booked leads')
 
   let bookedAtUpdated = 0
   for (const lead of bookedLeads ?? []) {
@@ -265,57 +172,35 @@ export async function POST() {
       )
       if (!apptRes.ok) {
         const errBody = await apptRes.text()
-        console.log('[ghl/sync] appointments fetch failed for', lead.ghl_contact_id, ':', apptRes.status, errBody.slice(0, 200))
+        console.log('[ghl/sync] appointments fetch failed for', lead.ghl_contact_id, ':', apptRes.status, errBody.slice(0, 100))
         continue
       }
 
       const apptData = await apptRes.json() as {
-        events?: {
-          startTime?: string
-          status?: string
-          appointmentStatus?: string
-          assignedUserId?: string
-        }[]
-        appointments?: {
-          startTime?: string
-          status?: string
-          appointmentStatus?: string
-          assignedUserId?: string
-        }[]
+        events?: { startTime?: string; status?: string; appointmentStatus?: string; assignedUserId?: string }[]
+        appointments?: { startTime?: string; status?: string; appointmentStatus?: string; assignedUserId?: string }[]
       }
 
-      const appts = (apptData.events ?? apptData.appointments ?? [])
-        .filter(a =>
-          a.status !== 'cancelled' &&
-          a.appointmentStatus !== 'cancelled' &&
-          a.startTime
-        )
-        .sort((a, b) =>
-          new Date(b.startTime!).getTime() - new Date(a.startTime!).getTime()
-        )
+      console.log('[ghl/sync] contact', lead.ghl_contact_id, 'has', (apptData.events ?? apptData.appointments ?? []).length, 'appointments')
 
-      console.log('[ghl/sync] contact', lead.ghl_contact_id, 'has', appts.length, 'appointments, raw events:', JSON.stringify(apptData).slice(0, 300))
+      const appts = (apptData.events ?? apptData.appointments ?? [])
+        .filter(a => a.status !== 'cancelled' && a.appointmentStatus !== 'cancelled' && a.startTime)
+        .sort((a, b) => new Date(b.startTime!).getTime() - new Date(a.startTime!).getTime())
+
       if (appts.length > 0) {
-        const rawTime = appts[0].startTime!
-        // GHL returns "2026-04-08 17:30:00" — replace space with T and add Z
+        const rawTime    = appts[0].startTime!
         const normalized = rawTime.includes('T') ? rawTime : rawTime.replace(' ', 'T') + 'Z'
-        const bookedAt = new Date(normalized).toISOString()
-        await admin
-          .from('leads')
-          .update({ booked_at: bookedAt })
-          .eq('id', lead.id)
+        const bookedAt   = new Date(normalized).toISOString()
+
+        const updateData: Record<string, unknown> = { booked_at: bookedAt }
+
+        const ghlCloserId    = appts[0].assignedUserId
+        const agencyCloserId = ghlCloserId ? GHL_TO_AGENCYOS_CLOSER[ghlCloserId] : null
+        if (agencyCloserId) updateData.assigned_closer_id = agencyCloserId
+
+        await admin.from('leads').update(updateData).eq('id', lead.id)
         bookedAtUpdated++
         console.log('[ghl/sync] set booked_at for', lead.ghl_contact_id, '→', bookedAt)
-
-        const ghlCloserId = appts[0].assignedUserId
-        const agencyCloserId = ghlCloserId ? GHL_TO_AGENCYOS_CLOSER[ghlCloserId] : null
-        if (agencyCloserId) {
-          await admin
-            .from('leads')
-            .update({ assigned_closer_id: agencyCloserId })
-            .eq('id', lead.id)
-          console.log('[ghl/sync] assigned closer', agencyCloserId, 'to lead', lead.id)
-        }
       }
     } catch (err) {
       console.log('[ghl/sync] catch error for', lead.ghl_contact_id, ':', String(err))
