@@ -8,27 +8,6 @@ import { NextResponse } from 'next/server'
 import { resolveCrmUser } from '../_auth'
 import type { PipelineStage } from '@/types/crm'
 
-// Default stages returned when a creator has none seeded yet
-const DEFAULT_MAIN_STAGES = [
-  { name: 'dmd',         color: '#6366f1', position: 0, is_won: false, is_lost: false },
-  { name: 'qualifying',  color: '#8b5cf6', position: 1, is_won: false, is_lost: false },
-  { name: 'qualified',   color: '#2563eb', position: 2, is_won: false, is_lost: false },
-  { name: 'call_booked', color: '#0ea5e9', position: 3, is_won: false, is_lost: false },
-  { name: 'showed',      color: '#f59e0b', position: 4, is_won: false, is_lost: false },
-  { name: 'closed_won',  color: '#10b981', position: 5, is_won: true,  is_lost: false },
-  { name: 'closed_lost', color: '#ef4444', position: 6, is_won: false, is_lost: true  },
-  { name: 'follow_up',   color: '#f97316', position: 7, is_won: false, is_lost: false },
-  { name: 'nurture',     color: '#14b8a6', position: 8, is_won: false, is_lost: false },
-]
-
-const DEFAULT_DOWNGRADE_STAGES = [
-  { name: 'offered',    color: '#6366f1', position: 0, is_won: false, is_lost: false },
-  { name: 'interested', color: '#8b5cf6', position: 1, is_won: false, is_lost: false },
-  { name: 'booked',     color: '#f59e0b', position: 2, is_won: false, is_lost: false },
-  { name: 'closed',     color: '#10b981', position: 3, is_won: true,  is_lost: false },
-  { name: 'dead',       color: '#4b5563', position: 4, is_won: false, is_lost: true  },
-]
-
 // ── GET ───────────────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
@@ -45,17 +24,7 @@ export async function GET(req: Request) {
     targetCreatorId = searchParams.get('creator_id') ?? null
   }
   if (!targetCreatorId) {
-    // super_admin without a creator_id — return defaults so the CRM shell renders
-    const defaults = pipelineType === 'downgrade' ? DEFAULT_DOWNGRADE_STAGES : DEFAULT_MAIN_STAGES
-    return NextResponse.json(
-      defaults.map((s, i) => ({
-        id: `default-${i}`,
-        creator_id: null,
-        pipeline_type: pipelineType,
-        created_at: new Date().toISOString(),
-        ...s,
-      }))
-    )
+    return NextResponse.json([])
   }
 
   const { data, error } = await admin
@@ -69,21 +38,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // If no stages seeded yet, return defaults (allows zero-migration bootstrapping)
-  if (!data || data.length === 0) {
-    const defaults = pipelineType === 'downgrade' ? DEFAULT_DOWNGRADE_STAGES : DEFAULT_MAIN_STAGES
-    return NextResponse.json(
-      defaults.map((s, i) => ({
-        id: `default-${i}`,
-        creator_id: targetCreatorId,
-        pipeline_type: pipelineType,
-        created_at: new Date().toISOString(),
-        ...s,
-      }))
-    )
-  }
-
-  return NextResponse.json(data as PipelineStage[])
+  return NextResponse.json((data ?? []) as PipelineStage[])
 }
 
 // ── POST ──────────────────────────────────────────────────────────────────────
