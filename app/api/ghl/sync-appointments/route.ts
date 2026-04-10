@@ -220,5 +220,52 @@ export async function POST() {
   }
 
   console.log('[ghl/sync] done — synced:', synced, 'created:', created, 'updated:', updated, 'skipped:', skipped)
-  return NextResponse.json({ synced, created, updated, skipped })
+
+  // Second pass: fetch appointment time for booked leads
+  const { data: bookedLeads } = await admin
+    .from('leads')
+    .select('id, ghl_contact_id')
+    .eq('creator_id', creatorId)
+    .eq('stage', 'call_booked')
+    .is('booked_at', null)
+    .not('ghl_contact_id', 'is', null)
+
+  console.log('[ghl/sync] fetching appointment times for',
+    bookedLeads?.length ?? 0, 'booked leads')
+
+  let bookedAtUpdated = 0
+  for (const lead of bookedLeads ?? []) {
+    try {
+      const apptRes = await fetch(
+        `${baseUrl}/contacts/${lead.ghl_contact_id}/appointments`,
+        { headers }
+      )
+      if (!apptRes.ok) continue
+
+      const apptData = await apptRes.json() as {
+        appointments?: { startTime?: string; status?: string }[]
+      }
+
+      const appts = (apptData.appointments ?? [])
+        .filter(a => a.status !== 'cancelled' && a.startTime)
+        .sort((a, b) =>
+          new Date(b.startTime!).getTime() - new Date(a.startTime!).getTime()
+        )
+
+      if (appts.length > 0) {
+        const bookedAt = new Date(appts[0].startTime!).toISOString()
+        await admin
+          .from('leads')
+          .update({ booked_at: bookedAt })
+          .eq('id', lead.id)
+        bookedAtUpdated++
+        console.log('[ghl/sync] set booked_at for', lead.ghl_contact_id, '→', bookedAt)
+      }
+    } catch {
+      continue
+    }
+  }
+
+  console.log('[ghl/sync] booked_at updated for', bookedAtUpdated, 'leads')
+  return NextResponse.json({ synced, created, updated, skipped, bookedAtUpdated })
 }
