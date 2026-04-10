@@ -26,11 +26,6 @@ interface GhlAppointment {
   }
 }
 
-interface GhlAppointmentsResponse {
-  events?:       GhlAppointment[]
-  appointments?: GhlAppointment[]
-}
-
 export async function POST() {
   const creatorId = await getCreatorId()
   if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -56,39 +51,69 @@ export async function POST() {
     return NextResponse.json({ error: 'GHL Location ID not set for this creator' }, { status: 400 })
   }
 
-  // 3. Fetch appointments from GHL (now - 30 days to now + 60 days)
-  const now      = Date.now()
-  const startMs  = now - 30 * 86_400_000
-  const endMs    = now + 60 * 86_400_000
-  const baseUrl  = process.env.GHL_BASE_URL ?? 'https://services.leadconnectorhq.com'
+  const baseUrl = process.env.GHL_BASE_URL ?? 'https://services.leadconnectorhq.com'
 
-  const url = `${baseUrl}/calendars/events?locationId=${locationId}&startTime=${startMs}&endTime=${endMs}&limit=100`
+  // Step 1: get all calendars for this location
+  const calendarsUrl = `${baseUrl}/calendars/?locationId=${locationId}`
+  let calendarIds: string[] = []
 
-  let ghlData: GhlAppointmentsResponse
   try {
-    const res = await fetch(url, {
+    const calRes = await fetch(calendarsUrl, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         Version: '2021-04-15',
       },
     })
-
-    if (res.status === 401 || res.status === 403) {
-      return NextResponse.json({ error: 'GHL API key is invalid or expired' }, { status: 400 })
+    if (calRes.ok) {
+      const calData = await calRes.json() as { calendars?: { id: string }[] }
+      calendarIds = (calData.calendars ?? []).map(c => c.id).filter(Boolean)
+      console.log(`[ghl/sync-appointments] found ${calendarIds.length} calendars`)
+    } else {
+      const body = await calRes.text()
+      console.error('[ghl/sync-appointments] calendars fetch failed:', calRes.status, body)
+      return NextResponse.json({ error: `Failed to fetch GHL calendars: ${calRes.status}` }, { status: 500 })
     }
-    if (!res.ok) {
-      const body = await res.text()
-      console.error('[ghl/sync-appointments] GHL API error:', res.status, body)
-      return NextResponse.json({ error: `GHL API returned ${res.status}` }, { status: 500 })
-    }
-
-    ghlData = await res.json() as GhlAppointmentsResponse
   } catch (err) {
-    console.error('[ghl/sync-appointments] fetch error:', err)
+    console.error('[ghl/sync-appointments] calendars fetch error:', err)
     return NextResponse.json({ error: 'Failed to reach GHL API' }, { status: 500 })
   }
 
-  const appointments = ghlData.events ?? ghlData.appointments ?? []
+  if (calendarIds.length === 0) {
+    return NextResponse.json({ error: 'No calendars found in this GHL location' }, { status: 404 })
+  }
+
+  // Step 2: fetch events per calendar and combine
+  const startIso = new Date(Date.now() - 30 * 86_400_000).toISOString()
+  const endIso   = new Date(Date.now() + 60 * 86_400_000).toISOString()
+
+  const allAppointments: GhlAppointment[] = []
+
+  for (const calId of calendarIds) {
+    try {
+      const eventsUrl = `${baseUrl}/calendars/events?locationId=${locationId}&calendarId=${calId}&startTime=${startIso}&endTime=${endIso}`
+      const evRes = await fetch(eventsUrl, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Version: '2021-04-15',
+        },
+      })
+      if (!evRes.ok) {
+        console.warn(`[ghl/sync-appointments] events fetch failed for calendar ${calId}:`, evRes.status)
+        continue
+      }
+      const evData = await evRes.json() as { events?: GhlAppointment[]; appointments?: GhlAppointment[] }
+      const events = evData.events ?? evData.appointments ?? []
+      allAppointments.push(...events)
+      console.log(`[ghl/sync-appointments] calendar ${calId}: ${events.length} events`)
+    } catch (err) {
+      console.warn(`[ghl/sync-appointments] error fetching calendar ${calId}:`, err)
+      continue
+    }
+  }
+
+  console.log(`[ghl/sync-appointments] total events across all calendars: ${allAppointments.length}`)
+
+  const appointments = allAppointments
   let synced = 0, created = 0, updated = 0
 
   for (const appt of appointments) {
