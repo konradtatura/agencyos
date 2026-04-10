@@ -265,7 +265,7 @@ export async function POST() {
       if (appts.length > 0) {
         const rawTime = appts[0].startTime!
         // GHL returns "2026-04-08 17:30:00" — replace space with T and add Z
-        const normalized = rawTime.includes('T') ? rawTime : rawTime.replace(' ', 'T') + ':00.000Z'
+        const normalized = rawTime.includes('T') ? rawTime : rawTime.replace(' ', 'T') + 'Z'
         const bookedAt = new Date(normalized).toISOString()
         await admin
           .from('leads')
