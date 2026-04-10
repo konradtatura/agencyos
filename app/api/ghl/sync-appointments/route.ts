@@ -28,10 +28,25 @@ export async function POST() {
   // Offer tier mapping by stage name
   const MT_STAGES = new Set(['MT Budget', 'Mid Ticket PiF', 'Mid Ticket Split', 'Booked MT Call', 'Low Ticket'])
 
+  const STAGE_ID_TO_NAME: Record<string, string> = {
+    'fd5ee6e8-c250-48b7-8845-834e95771b3e': 'Disqualified',
+    '751071bd-4bb7-4051-a27a-a8d568116a48': 'MT Budget',
+    'f9b814b8-d128-484d-8a4c-adeaa7be56b5': 'Qualified',
+    '90e1d5d1-b327-42b5-acec-9eb43b626ef7': 'Low Ticket',
+    '1081113e-f541-409b-bc69-786f95e86cdc': 'Mid Ticket PiF',
+    'cef37f2b-cd8a-48e2-ba99-f40b944d9659': 'Mid Ticket Split',
+    '3f6aa5f6-895c-4e62-9c53-3de75f819640': 'Booked MT Call',
+    '283f78d0-abee-4626-8c5a-05662e2ae6eb': 'Booked',
+    '1bdb581b-3c6f-4658-a281-ed2797395123': 'No-show',
+    '2bf2ed1d-e6cb-4537-a566-59af9bfefd17': 'No-close',
+    'e557a30b-7805-4876-b786-0dda154caf21': 'High Ticket PiF',
+    '07c61802-947b-48fb-840f-6e2282c55cba': 'High Ticket Split',
+  }
+
   // Fetch all opportunities (paginated)
   const allOpps: {
     id: string
-    pipelineStageName: string
+    pipelineStageId: string
     monetaryValue?: number
     contact: {
       id: string
@@ -79,7 +94,7 @@ export async function POST() {
   let synced = 0, created = 0, updated = 0, skipped = 0
 
   for (const opp of allOpps) {
-    const stage      = opp.pipelineStageName
+    const stage      = STAGE_ID_TO_NAME[opp.pipelineStageId] ?? 'Qualified'
     const offer_tier = MT_STAGES.has(stage) ? 'mt' : 'ht'
     const contact    = opp.contact
     const ghlId      = contact.id
