@@ -272,6 +272,26 @@ export async function POST() {
           .eq('id', lead.id)
         bookedAtUpdated++
         console.log('[ghl/sync] set booked_at for', lead.ghl_contact_id, '→', bookedAt)
+
+        // Assign closer: look up team member for this creator
+        // who has the role 'closer' — assign the first one found
+        if (bookedAtUpdated === 1) { // only do this lookup once, reuse result
+          const { data: closerMember } = await admin
+            .from('team_members')
+            .select('user_id')
+            .eq('creator_id', creatorId)
+            .eq('role', 'closer')
+            .eq('active', true)
+            .limit(1)
+            .maybeSingle()
+
+          if (closerMember) {
+            await admin
+              .from('leads')
+              .update({ assigned_closer_id: closerMember.user_id })
+              .eq('id', lead.id)
+          }
+        }
       }
     } catch (err) {
       console.log('[ghl/sync] catch error for', lead.ghl_contact_id, ':', String(err))
