@@ -86,6 +86,8 @@ export async function POST() {
   const apiKey     = profile?.ghl_api_key
   const locationId = profile?.ghl_location_id
 
+  console.log('[ghl/sync] apiKey present:', !!apiKey, 'locationId:', locationId, 'apiKey prefix:', apiKey ? apiKey.slice(0, 10) : 'MISSING')
+
   if (!apiKey) {
     return NextResponse.json({
       error: 'GHL Private Integration key not set. Go to Settings → GHL Private Integration Key.',
