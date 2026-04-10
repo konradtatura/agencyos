@@ -5,6 +5,7 @@ import { isTokenExpired } from '@/lib/instagram/token'
 import DisconnectButton from './disconnect-button'
 import WhopSection from './whop-section'
 import DmWebhookSetup from './dm-webhook-setup'
+import GhlKeySection from './ghl-key-section'
 import { AlertTriangle, CheckCircle2, Link2 } from 'lucide-react'
 
 function IgIcon({ className }: { className?: string }) {
@@ -274,6 +275,7 @@ export default async function SettingsPage() {
             </div>
           </div>
         </IntegrationRow>
+        <GhlKeySection />
       </section>
     </div>
   )

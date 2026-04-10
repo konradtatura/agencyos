@@ -36,26 +36,21 @@ export async function POST() {
 
   const admin = createAdminClient()
 
-  // 1. Read GHL API key from agency_config
-  const { data: configRow } = await admin
-    .from('agency_config')
-    .select('ghl_api_key')
-    .limit(1)
-    .maybeSingle()
-
-  const apiKey = configRow?.ghl_api_key
-  if (!apiKey) {
-    return NextResponse.json({ error: 'GHL API key not configured in agency settings' }, { status: 400 })
-  }
-
-  // 2. Read ghl_location_id from creator_profiles
-  const { data: profile } = await admin
+  // 1. Read GHL API key + location ID from creator_profiles
+  const { data: creatorProfile } = await admin
     .from('creator_profiles')
-    .select('ghl_location_id')
+    .select('ghl_api_key, ghl_location_id')
     .eq('id', creatorId)
     .maybeSingle()
 
-  const locationId = profile?.ghl_location_id
+  const apiKey     = creatorProfile?.ghl_api_key
+  const locationId = creatorProfile?.ghl_location_id
+
+  if (!apiKey) {
+    return NextResponse.json({
+      error: 'GHL Private Integration key not set. Go to Settings → GHL Private Integration Key and add it.',
+    }, { status: 400 })
+  }
   if (!locationId) {
     return NextResponse.json({ error: 'GHL Location ID not set for this creator' }, { status: 400 })
   }
