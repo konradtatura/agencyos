@@ -36,6 +36,12 @@ const TIER_STYLE: Record<string, { bg: string; text: string }> = {
 
 const TIER_LABEL: Record<string, string> = { ht: 'HT', mt: 'MT', lt: 'LT' }
 
+const TIER_EVENT_STYLE: Record<string, { bg: string; text: string; border: string; label: string }> = {
+  ht: { bg: 'rgba(139,92,246,0.25)', text: '#c4b5fd', border: 'rgba(139,92,246,0.4)', label: 'HT' },
+  mt: { bg: 'rgba(37,99,235,0.25)',  text: '#93c5fd', border: 'rgba(37,99,235,0.4)',  label: 'MT' },
+  lt: { bg: 'rgba(16,185,129,0.2)',  text: '#6ee7b7', border: 'rgba(16,185,129,0.35)', label: 'LT' },
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtUSD(n: number): string {
@@ -411,7 +417,7 @@ export default function CalendarView({ leads }: { leads: Lead[] }) {
                       backgroundColor: isToday ? 'rgba(37,99,235,0.02)' : 'transparent',
                     }}>
                       {slotLeads.map((lead) => {
-                        const s = STAGE_STYLE[lead.stage] ?? STAGE_STYLE.call_booked
+                        const tierStyle = TIER_EVENT_STYLE[lead.offer_tier?.toLowerCase() ?? 'ht'] ?? TIER_EVENT_STYLE.ht
                         const t = lead.offer_tier ? TIER_LABEL[lead.offer_tier] : null
                         const time = new Date(lead.booked_at!).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
                         return (
@@ -421,15 +427,15 @@ export default function CalendarView({ leads }: { leads: Lead[] }) {
                             style={{
                               display: 'block', width: '100%', textAlign: 'left',
                               padding: '4px 6px', borderRadius: 6, marginBottom: 2,
-                              backgroundColor: s.bg,
-                              border: `1px solid ${s.dot}30`,
+                              backgroundColor: tierStyle.bg,
+                              border: `1px solid ${tierStyle.border}`,
                               cursor: 'pointer', minHeight: 48,
                             }}
                           >
-                            <p style={{ fontSize: 11.5, fontWeight: 700, color: s.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <p style={{ fontSize: 11.5, fontWeight: 700, color: tierStyle.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {lead.name}
                             </p>
-                            <p style={{ fontSize: 10, color: `${s.text}99`, marginTop: 1 }}>{time}{t ? ` · ${t}` : ''}</p>
+                            <p style={{ fontSize: 10, color: `${tierStyle.text}99`, marginTop: 1 }}>{time}{t ? ` · ${t}` : ''}</p>
                           </button>
                         )
                       })}
