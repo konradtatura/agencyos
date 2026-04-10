@@ -27,6 +27,7 @@ interface GhlAppointment {
 }
 
 interface GhlAppointmentsResponse {
+  events?:       GhlAppointment[]
   appointments?: GhlAppointment[]
 }
 
@@ -61,7 +62,7 @@ export async function POST() {
   const endMs    = now + 60 * 86_400_000
   const baseUrl  = process.env.GHL_BASE_URL ?? 'https://services.leadconnectorhq.com'
 
-  const url = `${baseUrl}/calendars/appointments?locationId=${locationId}&startTime=${startMs}&endTime=${endMs}&limit=100`
+  const url = `${baseUrl}/calendars/events?locationId=${locationId}&startTime=${startMs}&endTime=${endMs}&limit=100`
 
   let ghlData: GhlAppointmentsResponse
   try {
@@ -87,7 +88,7 @@ export async function POST() {
     return NextResponse.json({ error: 'Failed to reach GHL API' }, { status: 500 })
   }
 
-  const appointments = ghlData.appointments ?? []
+  const appointments = ghlData.events ?? ghlData.appointments ?? []
   let synced = 0, created = 0, updated = 0
 
   for (const appt of appointments) {
