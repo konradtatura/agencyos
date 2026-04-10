@@ -134,10 +134,8 @@ export async function POST() {
     const bookedAt  = new Date(startTime).toISOString()
     const firstName = appt.contact?.firstName ?? ''
     const lastName  = appt.contact?.lastName  ?? ''
-    const name      = appt.contact?.name
-      ?? [firstName, lastName].filter(Boolean).join(' ')
-      || appt.title
-      || 'Unknown'
+    const fullName = [firstName, lastName].filter(Boolean).join(' ')
+    const name = appt.contact?.name ?? fullName ?? appt.title ?? 'Unknown'
     const email = appt.contact?.email?.toLowerCase().trim() ?? null
     const phone = appt.contact?.phone ?? null
 
