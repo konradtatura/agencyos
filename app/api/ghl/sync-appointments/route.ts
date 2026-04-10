@@ -240,7 +240,11 @@ export async function POST() {
         `${baseUrl}/contacts/${lead.ghl_contact_id}/appointments`,
         { headers }
       )
-      if (!apptRes.ok) continue
+      if (!apptRes.ok) {
+        const errBody = await apptRes.text()
+        console.log('[ghl/sync] appointments fetch failed for', lead.ghl_contact_id, ':', apptRes.status, errBody.slice(0, 200))
+        continue
+      }
 
       const apptData = await apptRes.json() as {
         events?: { startTime?: string; status?: string; appointmentStatus?: string }[]
@@ -257,6 +261,7 @@ export async function POST() {
           new Date(b.startTime!).getTime() - new Date(a.startTime!).getTime()
         )
 
+      console.log('[ghl/sync] contact', lead.ghl_contact_id, 'has', appts.length, 'appointments, raw events:', JSON.stringify(apptData).slice(0, 300))
       if (appts.length > 0) {
         const rawTime = appts[0].startTime!
         // GHL returns "2026-04-08 17:30:00" — replace space with T and add Z
@@ -269,7 +274,8 @@ export async function POST() {
         bookedAtUpdated++
         console.log('[ghl/sync] set booked_at for', lead.ghl_contact_id, '→', bookedAt)
       }
-    } catch {
+    } catch (err) {
+      console.log('[ghl/sync] catch error for', lead.ghl_contact_id, ':', String(err))
       continue
     }
   }
