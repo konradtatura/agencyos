@@ -150,9 +150,8 @@ export async function POST() {
   for (const contact of contactsWithTags) {
     const tags = contact.tags ?? []
     const { stage, offer_tier } = resolveStage(tags)
-    const name  = contact.name
-      ?? [contact.firstName, contact.lastName].filter(Boolean).join(' ')
-      || 'Unknown'
+    const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(' ')
+    const name = contact.name ?? fullName ?? 'Unknown'
     const email = contact.email?.toLowerCase().trim() ?? null
     const phone = contact.phone ?? null
     const ghlId = contact.id
