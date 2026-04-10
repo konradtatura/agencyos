@@ -96,9 +96,12 @@ export async function POST() {
   const allContacts: GhlContact[] = []
   let page = 0
   const limit = 100
+  let lastContactId = ''
 
-  while (allContacts.length < 1000) {
-    const url = `${baseUrl}/contacts/?locationId=${locationId}&limit=${limit}&skip=${page * limit}`
+  while (true) {
+    const url = page === 0
+      ? `${baseUrl}/contacts/?locationId=${locationId}&limit=${limit}`
+      : `${baseUrl}/contacts/?locationId=${locationId}&limit=${limit}&startAfterId=${lastContactId}`
     let res: Response
     try {
       res = await fetch(url, { headers })
@@ -123,7 +126,12 @@ export async function POST() {
     console.log('[ghl/sync] page', page, ':', contacts.length, 'contacts')
     allContacts.push(...contacts)
 
+    if (contacts.length > 0) {
+      lastContactId = contacts[contacts.length - 1].id
+    }
+
     if (contacts.length < limit) break
+    if (allContacts.length >= 1000) break
     page++
   }
 
