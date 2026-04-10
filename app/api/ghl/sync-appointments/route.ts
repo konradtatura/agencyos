@@ -243,17 +243,25 @@ export async function POST() {
       if (!apptRes.ok) continue
 
       const apptData = await apptRes.json() as {
-        appointments?: { startTime?: string; status?: string }[]
+        events?: { startTime?: string; status?: string; appointmentStatus?: string }[]
+        appointments?: { startTime?: string; status?: string; appointmentStatus?: string }[]
       }
 
-      const appts = (apptData.appointments ?? [])
-        .filter(a => a.status !== 'cancelled' && a.startTime)
+      const appts = (apptData.events ?? apptData.appointments ?? [])
+        .filter(a =>
+          a.status !== 'cancelled' &&
+          a.appointmentStatus !== 'cancelled' &&
+          a.startTime
+        )
         .sort((a, b) =>
           new Date(b.startTime!).getTime() - new Date(a.startTime!).getTime()
         )
 
       if (appts.length > 0) {
-        const bookedAt = new Date(appts[0].startTime!).toISOString()
+        const rawTime = appts[0].startTime!
+        // GHL returns "2026-04-08 17:30:00" — replace space with T and add Z
+        const normalized = rawTime.includes('T') ? rawTime : rawTime.replace(' ', 'T') + ':00.000Z'
+        const bookedAt = new Date(normalized).toISOString()
         await admin
           .from('leads')
           .update({ booked_at: bookedAt })
