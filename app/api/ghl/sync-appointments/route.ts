@@ -2,48 +2,79 @@ import { NextResponse } from 'next/server'
 import { getCreatorId } from '@/lib/get-creator-id'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-interface GhlEvent {
-  id:          string
-  title?:      string
-  startTime?:  string
-  endTime?:    string
-  status?:     string
-  appointmentStatus?: string
-  calendarId?: string
-  contactId?:  string
-  assignedUserId?: string
-  contact?: {
-    id?:        string
-    firstName?: string
-    lastName?:  string
-    email?:     string
-    phone?:     string
-    name?:      string
-  }
+// Maps GHL tags → AgencyOS stage + offer_tier
+const TAG_STAGE_MAP: Record<string, { stage: string; offer_tier?: string }> = {
+  'new lead':                  { stage: 'qualifying' },
+  'dm':                        { stage: 'qualifying' },
+  'qualified':                 { stage: 'qualified' },
+  'vsl qualified application': { stage: 'qualified' },
+  'booked':                    { stage: 'call_booked' },
+  'calendly':                  { stage: 'call_booked' },
+  'call lead':                 { stage: 'call_booked' },
+  'mt call':                   { stage: 'call_booked', offer_tier: 'mt' },
+  'mt budget':                 { stage: 'qualifying',  offer_tier: 'mt' },
+  'call picked up':            { stage: 'showed' },
+  'no answer':                 { stage: 'no_show' },
+  'no show':                   { stage: 'no_show' },
+  'no show follow up':         { stage: 'no_show' },
+  'closed':                    { stage: 'closed_won' },
+  'closed mid-ticket':         { stage: 'closed_won',  offer_tier: 'mt' },
+  'no close':                  { stage: 'closed_lost' },
+  "didn't close":              { stage: 'closed_lost' },
+  'disqualified':              { stage: 'disqualified' },
+  'dwcall':                    { stage: 'qualifying' },
+  'bio':                       { stage: 'qualifying' },
 }
 
-interface GhlEventsResponse {
-  events?: GhlEvent[]
-}
-
-interface GhlUser {
-  id:        string
-  name:      string
+interface GhlContact {
+  id:         string
   firstName?: string
   lastName?:  string
-  deleted?:   boolean
+  name?:      string
+  email?:     string
+  phone?:     string
+  tags?:      string[]
+  dateAdded?: string
 }
 
-interface GhlUsersResponse {
-  users?: GhlUser[]
+interface GhlContactsResponse {
+  contacts?: GhlContact[]
+  meta?: { total?: number; nextPageUrl?: string }
+}
+
+function resolveStage(tags: string[]): { stage: string; offer_tier: string } {
+  // Priority order — later stages override earlier ones
+  const PRIORITY = [
+    'qualifying', 'qualified', 'call_booked', 'showed',
+    'no_show', 'closed_won', 'closed_lost', 'disqualified'
+  ]
+
+  let bestStage    = 'qualifying'
+  let bestTier     = 'ht'
+  let bestPriority = -1
+
+  for (const tag of tags) {
+    const normalized = tag.toLowerCase().trim()
+    const mapping = TAG_STAGE_MAP[normalized]
+    if (!mapping) continue
+
+    const priority = PRIORITY.indexOf(mapping.stage)
+    if (priority > bestPriority) {
+      bestPriority = priority
+      bestStage    = mapping.stage
+      if (mapping.offer_tier) bestTier = mapping.offer_tier
+    }
+  }
+
+  return { stage: bestStage, offer_tier: bestTier }
 }
 
 export async function POST() {
   const creatorId = await getCreatorId()
   if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin    = createAdminClient()
-  const baseUrl  = process.env.GHL_BASE_URL ?? 'https://services.leadconnectorhq.com'
+  const admin   = createAdminClient()
+  const baseUrl = process.env.GHL_BASE_URL ?? 'https://services.leadconnectorhq.com'
 
   // 1. Read creator's GHL key + location ID
   const { data: profile } = await admin
@@ -69,91 +100,76 @@ export async function POST() {
     Version: '2021-07-28',
   }
 
-  // 2. Fetch all users in this location
-  let userIds: string[] = []
-  try {
-    const usersRes = await fetch(`${baseUrl}/users/?locationId=${locationId}`, { headers })
-    if (usersRes.ok) {
-      const usersData = await usersRes.json() as GhlUsersResponse
-      userIds = (usersData.users ?? [])
-        .filter(u => !u.deleted)
-        .map(u => u.id)
-      console.log(`[ghl/sync-appointments] found ${userIds.length} users`)
-    } else {
-      const body = await usersRes.text()
-      console.error('[ghl/sync-appointments] users fetch failed:', usersRes.status, body)
-      return NextResponse.json({ error: `Failed to fetch GHL users: ${usersRes.status}` }, { status: 500 })
-    }
-  } catch (err) {
-    console.error('[ghl/sync-appointments] users fetch error:', err)
-    return NextResponse.json({ error: 'Failed to reach GHL API' }, { status: 500 })
-  }
+  // 2. Fetch all contacts (paginated)
+  const allContacts: GhlContact[] = []
+  let page = 1
+  const limit = 100
 
-  // 3. Fetch events per user and combine
-  const startIso = new Date(Date.now() - 60 * 86_400_000).toISOString()
-  const endIso   = new Date(Date.now() + 90 * 86_400_000).toISOString()
-  const allEvents: GhlEvent[] = []
-
-  for (const userId of userIds) {
+  while (true) {
     try {
-      const url = `${baseUrl}/calendars/events?locationId=${locationId}&userId=${userId}&startTime=${startIso}&endTime=${endIso}`
-      const res = await fetch(url, { headers: { ...headers, Version: '2021-04-15' } })
+      const url = `${baseUrl}/contacts/?locationId=${locationId}&limit=${limit}&skip=${(page - 1) * limit}`
+      const res = await fetch(url, { headers })
+
       if (!res.ok) {
-        console.warn(`[ghl/sync-appointments] events failed for user ${userId}:`, res.status)
-        continue
+        const body = await res.text()
+        console.error('[ghl/sync] contacts fetch failed:', res.status, body)
+        break
       }
-      const data = await res.json() as GhlEventsResponse
-      const events = (data.events ?? []).filter(e =>
-        e.appointmentStatus !== 'cancelled' && e.status !== 'cancelled'
-      )
-      console.log(`[ghl/sync-appointments] user ${userId}: ${events.length} events`)
-      allEvents.push(...events)
+
+      const data = await res.json() as GhlContactsResponse
+      const contacts = data.contacts ?? []
+      allContacts.push(...contacts)
+
+      console.log(`[ghl/sync] page ${page}: ${contacts.length} contacts (total so far: ${allContacts.length})`)
+
+      if (contacts.length < limit) break
+      page++
+
+      // Safety limit — max 1000 contacts
+      if (allContacts.length >= 1000) break
     } catch (err) {
-      console.warn(`[ghl/sync-appointments] error for user ${userId}:`, err)
+      console.error('[ghl/sync] contacts fetch error:', err)
+      break
     }
   }
 
-  // Deduplicate by event id
-  const seen = new Set<string>()
-  const appointments = allEvents.filter(e => {
-    if (!e.id || seen.has(e.id)) return false
-    seen.add(e.id)
-    return true
-  })
+  console.log(`[ghl/sync] total contacts fetched: ${allContacts.length}`)
 
-  console.log(`[ghl/sync-appointments] total unique events: ${appointments.length}`)
+  // Only sync contacts that have at least one recognized tag
+  const contactsWithTags = allContacts.filter(c =>
+    (c.tags ?? []).some(t => TAG_STAGE_MAP[t.toLowerCase().trim()])
+  )
 
-  // 4. Upsert leads
-  let synced = 0, created = 0, updated = 0
+  console.log(`[ghl/sync] contacts with recognized tags: ${contactsWithTags.length}`)
 
-  for (const appt of appointments) {
-    const contactId = appt.contactId ?? appt.contact?.id
-    const startTime = appt.startTime
-    if (!startTime || !contactId) continue
+  // 3. Upsert leads
+  let synced = 0, created = 0, updated = 0, skipped = 0
 
-    const bookedAt  = new Date(startTime).toISOString()
-    const firstName = appt.contact?.firstName ?? ''
-    const lastName  = appt.contact?.lastName  ?? ''
-    const fullName = [firstName, lastName].filter(Boolean).join(' ')
-    const name = appt.contact?.name ?? fullName ?? appt.title ?? 'Unknown'
-    const email = appt.contact?.email?.toLowerCase().trim() ?? null
-    const phone = appt.contact?.phone ?? null
+  for (const contact of contactsWithTags) {
+    const tags = contact.tags ?? []
+    const { stage, offer_tier } = resolveStage(tags)
+    const name  = contact.name
+      ?? [contact.firstName, contact.lastName].filter(Boolean).join(' ')
+      || 'Unknown'
+    const email = contact.email?.toLowerCase().trim() ?? null
+    const phone = contact.phone ?? null
+    const ghlId = contact.id
 
-    // Check existing lead
+    // Check existing lead by ghl_contact_id or email
     let existingId: string | null = null
 
-    const { data: byContact } = await admin
+    const { data: byGhl } = await admin
       .from('leads')
-      .select('id, booked_at')
+      .select('id, stage')
       .eq('creator_id', creatorId)
-      .eq('ghl_contact_id', contactId)
+      .eq('ghl_contact_id', ghlId)
       .maybeSingle()
-    if (byContact) existingId = byContact.id
+    if (byGhl) existingId = byGhl.id
 
     if (!existingId && email) {
       const { data: byEmail } = await admin
         .from('leads')
-        .select('id, booked_at')
+        .select('id, stage')
         .eq('creator_id', creatorId)
         .eq('email', email)
         .maybeSingle()
@@ -164,9 +180,10 @@ export async function POST() {
       await admin
         .from('leads')
         .update({
-          booked_at:      bookedAt,
-          ghl_contact_id: contactId,
-          updated_at:     new Date().toISOString(),
+          stage,
+          offer_tier,
+          ghl_contact_id: ghlId,
+          updated_at: new Date().toISOString(),
         })
         .eq('id', existingId)
       updated++
@@ -179,27 +196,27 @@ export async function POST() {
           name,
           email,
           phone,
-          stage:            'call_booked',
-          offer_tier:       'ht',
+          stage,
+          offer_tier,
           pipeline_type:    'main',
-          lead_source_type: 'vsl_funnel',
-          ghl_contact_id:   contactId,
-          booked_at:        bookedAt,
+          lead_source_type: 'organic',
+          ghl_contact_id:   ghlId,
         })
         .select('id')
         .single()
 
       if (error) {
-        console.error('[ghl/sync-appointments] insert error:', error.message)
+        console.error('[ghl/sync] insert error:', error.message, 'contact:', ghlId)
+        skipped++
         continue
       }
 
       await admin.from('lead_stage_history').insert({
         lead_id:    newLead.id,
         from_stage: null,
-        to_stage:   'call_booked',
+        to_stage:   stage,
         changed_by: null,
-        note:       'Created via GHL appointment sync',
+        note:       'Imported via GHL contact sync',
       })
 
       created++
@@ -207,6 +224,6 @@ export async function POST() {
     }
   }
 
-  console.log(`[ghl/sync-appointments] done — synced:${synced} created:${created} updated:${updated}`)
-  return NextResponse.json({ synced, created, updated })
+  console.log(`[ghl/sync] done — synced:${synced} created:${created} updated:${updated} skipped:${skipped}`)
+  return NextResponse.json({ synced, created, updated, skipped })
 }
