@@ -1,145 +1,156 @@
-/**
- * POST /api/ghl/sync-appointments
- *
- * Pulls appointments from GHL for the current creator and upserts them
- * as leads with stage = 'call_booked'.
- */
-
 import { NextResponse } from 'next/server'
 import { getCreatorId } from '@/lib/get-creator-id'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-interface GhlAppointment {
+interface GhlEvent {
   id:          string
-  contactId?:  string
   title?:      string
   startTime?:  string
   endTime?:    string
   status?:     string
+  appointmentStatus?: string
   calendarId?: string
+  contactId?:  string
+  assignedUserId?: string
   contact?: {
     id?:        string
     firstName?: string
     lastName?:  string
     email?:     string
     phone?:     string
+    name?:      string
   }
+}
+
+interface GhlEventsResponse {
+  events?: GhlEvent[]
+}
+
+interface GhlUser {
+  id:        string
+  name:      string
+  firstName?: string
+  lastName?:  string
+  deleted?:   boolean
+}
+
+interface GhlUsersResponse {
+  users?: GhlUser[]
 }
 
 export async function POST() {
   const creatorId = await getCreatorId()
   if (!creatorId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const admin = createAdminClient()
+  const admin    = createAdminClient()
+  const baseUrl  = process.env.GHL_BASE_URL ?? 'https://services.leadconnectorhq.com'
 
-  // 1. Read GHL API key + location ID from creator_profiles
-  const { data: creatorProfile } = await admin
+  // 1. Read creator's GHL key + location ID
+  const { data: profile } = await admin
     .from('creator_profiles')
     .select('ghl_api_key, ghl_location_id')
     .eq('id', creatorId)
     .maybeSingle()
 
-  const apiKey     = creatorProfile?.ghl_api_key
-  const locationId = creatorProfile?.ghl_location_id
+  const apiKey     = profile?.ghl_api_key
+  const locationId = profile?.ghl_location_id
 
   if (!apiKey) {
     return NextResponse.json({
-      error: 'GHL Private Integration key not set. Go to Settings → GHL Private Integration Key and add it.',
+      error: 'GHL Private Integration key not set. Go to Settings → GHL Private Integration Key.',
     }, { status: 400 })
   }
   if (!locationId) {
     return NextResponse.json({ error: 'GHL Location ID not set for this creator' }, { status: 400 })
   }
 
-  const baseUrl = process.env.GHL_BASE_URL ?? 'https://services.leadconnectorhq.com'
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    Version: '2021-07-28',
+  }
 
-  // Step 1: get all calendars for this location
-  const calendarsUrl = `${baseUrl}/calendars/?locationId=${locationId}`
-  let calendarIds: string[] = []
-
+  // 2. Fetch all users in this location
+  let userIds: string[] = []
   try {
-    const calRes = await fetch(calendarsUrl, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Version: '2021-04-15',
-      },
-    })
-    if (calRes.ok) {
-      const calData = await calRes.json() as { calendars?: { id: string }[] }
-      calendarIds = (calData.calendars ?? []).map(c => c.id).filter(Boolean)
-      console.log(`[ghl/sync-appointments] found ${calendarIds.length} calendars`)
+    const usersRes = await fetch(`${baseUrl}/users/?locationId=${locationId}`, { headers })
+    if (usersRes.ok) {
+      const usersData = await usersRes.json() as GhlUsersResponse
+      userIds = (usersData.users ?? [])
+        .filter(u => !u.deleted)
+        .map(u => u.id)
+      console.log(`[ghl/sync-appointments] found ${userIds.length} users`)
     } else {
-      const body = await calRes.text()
-      console.error('[ghl/sync-appointments] calendars fetch failed:', calRes.status, body)
-      return NextResponse.json({ error: `Failed to fetch GHL calendars: ${calRes.status}` }, { status: 500 })
+      const body = await usersRes.text()
+      console.error('[ghl/sync-appointments] users fetch failed:', usersRes.status, body)
+      return NextResponse.json({ error: `Failed to fetch GHL users: ${usersRes.status}` }, { status: 500 })
     }
   } catch (err) {
-    console.error('[ghl/sync-appointments] calendars fetch error:', err)
+    console.error('[ghl/sync-appointments] users fetch error:', err)
     return NextResponse.json({ error: 'Failed to reach GHL API' }, { status: 500 })
   }
 
-  if (calendarIds.length === 0) {
-    return NextResponse.json({ error: 'No calendars found in this GHL location' }, { status: 404 })
-  }
+  // 3. Fetch events per user and combine
+  const startIso = new Date(Date.now() - 60 * 86_400_000).toISOString()
+  const endIso   = new Date(Date.now() + 90 * 86_400_000).toISOString()
+  const allEvents: GhlEvent[] = []
 
-  // Step 2: fetch events per calendar and combine
-  const startIso = new Date(Date.now() - 30 * 86_400_000).toISOString()
-  const endIso   = new Date(Date.now() + 60 * 86_400_000).toISOString()
-
-  const allAppointments: GhlAppointment[] = []
-
-  for (const calId of calendarIds) {
+  for (const userId of userIds) {
     try {
-      const eventsUrl = `${baseUrl}/calendars/events?locationId=${locationId}&calendarId=${calId}&startTime=${startIso}&endTime=${endIso}`
-      const evRes = await fetch(eventsUrl, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Version: '2021-04-15',
-        },
-      })
-      if (!evRes.ok) {
-        console.warn(`[ghl/sync-appointments] events fetch failed for calendar ${calId}:`, evRes.status)
+      const url = `${baseUrl}/calendars/events?locationId=${locationId}&userId=${userId}&startTime=${startIso}&endTime=${endIso}`
+      const res = await fetch(url, { headers: { ...headers, Version: '2021-04-15' } })
+      if (!res.ok) {
+        console.warn(`[ghl/sync-appointments] events failed for user ${userId}:`, res.status)
         continue
       }
-      const evData = await evRes.json() as { events?: GhlAppointment[]; appointments?: GhlAppointment[] }
-      const events = evData.events ?? evData.appointments ?? []
-      allAppointments.push(...events)
-      console.log(`[ghl/sync-appointments] calendar ${calId}: ${events.length} events`)
+      const data = await res.json() as GhlEventsResponse
+      const events = (data.events ?? []).filter(e =>
+        e.appointmentStatus !== 'cancelled' && e.status !== 'cancelled'
+      )
+      console.log(`[ghl/sync-appointments] user ${userId}: ${events.length} events`)
+      allEvents.push(...events)
     } catch (err) {
-      console.warn(`[ghl/sync-appointments] error fetching calendar ${calId}:`, err)
-      continue
+      console.warn(`[ghl/sync-appointments] error for user ${userId}:`, err)
     }
   }
 
-  console.log(`[ghl/sync-appointments] total events across all calendars: ${allAppointments.length}`)
+  // Deduplicate by event id
+  const seen = new Set<string>()
+  const appointments = allEvents.filter(e => {
+    if (!e.id || seen.has(e.id)) return false
+    seen.add(e.id)
+    return true
+  })
 
-  const appointments = allAppointments
+  console.log(`[ghl/sync-appointments] total unique events: ${appointments.length}`)
+
+  // 4. Upsert leads
   let synced = 0, created = 0, updated = 0
 
   for (const appt of appointments) {
     const contactId = appt.contactId ?? appt.contact?.id
     const startTime = appt.startTime
-    if (!startTime) continue
+    if (!startTime || !contactId) continue
 
-    const bookedAt   = new Date(startTime).toISOString()
-    const firstName  = appt.contact?.firstName ?? ''
-    const lastName   = appt.contact?.lastName  ?? ''
-    const name       = [firstName, lastName].filter(Boolean).join(' ') || 'Unknown'
-    const email      = appt.contact?.email?.toLowerCase().trim() ?? null
-    const phone      = appt.contact?.phone ?? null
+    const bookedAt  = new Date(startTime).toISOString()
+    const firstName = appt.contact?.firstName ?? ''
+    const lastName  = appt.contact?.lastName  ?? ''
+    const name      = appt.contact?.name
+      ?? [firstName, lastName].filter(Boolean).join(' ')
+      || appt.title
+      || 'Unknown'
+    const email = appt.contact?.email?.toLowerCase().trim() ?? null
+    const phone = appt.contact?.phone ?? null
 
-    // Check for existing lead by ghl_contact_id or email
+    // Check existing lead
     let existingId: string | null = null
 
-    if (contactId) {
-      const { data: byContact } = await admin
-        .from('leads')
-        .select('id, booked_at')
-        .eq('creator_id', creatorId)
-        .eq('ghl_contact_id', contactId)
-        .maybeSingle()
-      if (byContact) existingId = byContact.id
-    }
+    const { data: byContact } = await admin
+      .from('leads')
+      .select('id, booked_at')
+      .eq('creator_id', creatorId)
+      .eq('ghl_contact_id', contactId)
+      .maybeSingle()
+    if (byContact) existingId = byContact.id
 
     if (!existingId && email) {
       const { data: byEmail } = await admin
@@ -152,23 +163,17 @@ export async function POST() {
     }
 
     if (existingId) {
-      // Update booked_at if not already set
-      const { data: existing } = await admin
+      await admin
         .from('leads')
-        .select('booked_at')
+        .update({
+          booked_at:      bookedAt,
+          ghl_contact_id: contactId,
+          updated_at:     new Date().toISOString(),
+        })
         .eq('id', existingId)
-        .single()
-
-      if (!existing?.booked_at) {
-        await admin
-          .from('leads')
-          .update({ booked_at: bookedAt, ghl_contact_id: contactId ?? null, updated_at: new Date().toISOString() })
-          .eq('id', existingId)
-        updated++
-      }
+      updated++
       synced++
     } else {
-      // Create new lead
       const { data: newLead, error } = await admin
         .from('leads')
         .insert({
@@ -180,7 +185,7 @@ export async function POST() {
           offer_tier:       'ht',
           pipeline_type:    'main',
           lead_source_type: 'vsl_funnel',
-          ghl_contact_id:   contactId ?? null,
+          ghl_contact_id:   contactId,
           booked_at:        bookedAt,
         })
         .select('id')
