@@ -195,208 +195,313 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 
 export default function CalendarView({ leads }: { leads: Lead[] }) {
   const today = new Date()
-  const [year,  setYear]  = useState(today.getFullYear())
-  const [month, setMonth] = useState(today.getMonth())
+  const [viewDate, setViewDate] = useState(() => {
+    const d = new Date()
+    const dow = (d.getDay() + 6) % 7 // Mon=0
+    d.setDate(d.getDate() - dow)
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
   const [selected, setSelected] = useState<Lead | null>(null)
-  const [syncing,  setSyncing]  = useState(false)
-  const [syncMsg,  setSyncMsg]  = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const [selectedClosers, setSelectedClosers] = useState<Set<string>>(new Set(['all']))
+  const [selectedTiers, setSelectedTiers] = useState<Set<string>>(new Set(['ht', 'mt', 'lt']))
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
-  // Map: YYYY-MM-DD → Lead[]
-  const leadsByDate = new Map<string, Lead[]>()
-  for (const lead of leads) {
-    const key = toDateKey(lead.booked_at)
-    const arr = leadsByDate.get(key) ?? []
-    arr.push(lead)
-    leadsByDate.set(key, arr)
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(viewDate)
+    d.setDate(viewDate.getDate() + i)
+    return d
+  })
+
+  const HOURS = Array.from({ length: 16 }, (_, i) => i + 6)
+  const HOUR_HEIGHT = 64
+
+  const closers = Array.from(
+    new Map(
+      leads
+        .filter(l => l.closer?.full_name)
+        .map(l => [l.assigned_closer_id!, l.closer!.full_name!])
+    ).entries()
+  ).map(([id, name]) => ({ id, name }))
+
+  const filteredLeads = leads.filter(l => {
+    if (!l.booked_at) return false
+    const tierOk = !l.offer_tier || selectedTiers.has(l.offer_tier)
+    const closerOk = selectedClosers.has('all') ||
+      (l.assigned_closer_id ? selectedClosers.has(l.assigned_closer_id) : true)
+    return tierOk && closerOk
+  })
+
+  function getLeadsForSlot(day: Date, hour: number): Lead[] {
+    return filteredLeads.filter(l => {
+      const d = new Date(l.booked_at!)
+      return d.getFullYear() === day.getFullYear() &&
+        d.getMonth() === day.getMonth() &&
+        d.getDate() === day.getDate() &&
+        d.getHours() === hour
+    })
   }
 
-  const grid = buildGrid(year, month)
-  const todayKey = dateKey(today)
+  function prevWeek() {
+    setViewDate(d => { const n = new Date(d); n.setDate(d.getDate() - 7); return n })
+  }
+  function nextWeek() {
+    setViewDate(d => { const n = new Date(d); n.setDate(d.getDate() + 7); return n })
+  }
+  function goToToday() {
+    const d = new Date()
+    const dow = (d.getDay() + 6) % 7
+    d.setDate(d.getDate() - dow)
+    d.setHours(0, 0, 0, 0)
+    setViewDate(d)
+  }
 
-  // Stats for current month
-  const monthLeads = leads.filter((l) => {
+  const weekEnd = new Date(viewDate)
+  weekEnd.setDate(viewDate.getDate() + 6)
+  const weekLabel = `${viewDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${weekEnd.toLocaleDateString('en-US', { day: 'numeric', year: 'numeric' })}`
+
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+  function dayKey(d: Date) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
+  const now = new Date()
+  const currentMinutesFrom6am = (now.getHours() - 6) * 60 + now.getMinutes()
+  const showCurrentTime = currentMinutesFrom6am >= 0 && currentMinutesFrom6am <= 16 * 60
+
+  const monthLeads = leads.filter(l => {
+    if (!l.booked_at) return false
     const d = new Date(l.booked_at)
-    return d.getFullYear() === year && d.getMonth() === month
+    return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth()
   })
   const callsCount  = monthLeads.length
-  const showedCount = monthLeads.filter((l) => l.stage === 'showed' || l.stage === 'closed_won' || l.stage === 'closed_lost').length
-  const closedCount = monthLeads.filter((l) => l.stage === 'closed_won').length
-
-  // ── Navigation ───────────────────────────────────────────────────────────────
-
-  function prevMonth() {
-    if (month === 0) { setYear(y => y - 1); setMonth(11) }
-    else setMonth(m => m - 1)
-  }
-
-  function nextMonth() {
-    if (month === 11) { setYear(y => y + 1); setMonth(0) }
-    else setMonth(m => m + 1)
-  }
-
-  const monthLabel = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const showedCount = monthLeads.filter(l => ['showed', 'closed_won', 'closed_lost'].includes(l.stage)).length
+  const closedCount = monthLeads.filter(l => l.stage === 'closed_won').length
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="relative">
-      {/* ── Header ───────────────────────────────────────────────────── */}
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        {/* Month nav */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={prevMonth}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#9ca3af] transition-colors hover:bg-white/5 hover:text-[#f9fafb]"
-            style={{ border: '1px solid rgba(255,255,255,0.08)' }}
-          >
-            <ChevronLeft className="h-4 w-4" />
+    <div style={{ display: 'flex', gap: 0, minHeight: '80vh' }}>
+      {/* ── Main calendar area ── */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={prevWeek} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'transparent', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronLeft size={16} />
+            </button>
+            <span style={{ fontSize: 18, fontWeight: 700, color: '#f9fafb', minWidth: 200, textAlign: 'center' }}>
+              {weekLabel}
+            </span>
+            <button onClick={nextWeek} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'transparent', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          <button onClick={goToToday} style={{ padding: '5px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', backgroundColor: 'transparent', color: '#9ca3af', fontSize: 12.5, cursor: 'pointer' }}>
+            Today
           </button>
 
-          <span className="min-w-[160px] text-center text-[22px] font-bold text-[#f9fafb]">
-            {monthLabel}
-          </span>
-
-          <button
-            onClick={nextMonth}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#9ca3af] transition-colors hover:bg-white/5 hover:text-[#f9fafb]"
-            style={{ border: '1px solid rgba(255,255,255,0.08)' }}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <StatPill label={`${callsCount} calls this month`} color="#60a5fa" bg="rgba(37,99,235,0.12)" />
+            <StatPill label={`${showedCount} showed`} color="#fbbf24" bg="rgba(245,158,11,0.12)" />
+            <StatPill label={`${closedCount} closed`} color="#34d399" bg="rgba(16,185,129,0.12)" />
+            <button
+              onClick={async () => {
+                setSyncing(true); setSyncMsg(null)
+                try {
+                  const res = await fetch('/api/ghl/sync-appointments', { method: 'POST' })
+                  const data = await res.json() as { synced?: number; error?: string }
+                  if (res.ok) { setSyncMsg(`Synced ${data.synced}`); window.location.reload() }
+                  else setSyncMsg(data.error ?? 'Sync failed')
+                } catch { setSyncMsg('Network error') }
+                finally { setSyncing(false) }
+              }}
+              disabled={syncing}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, border: '1px solid rgba(37,99,235,0.2)', backgroundColor: 'rgba(37,99,235,0.15)', color: '#60a5fa', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: syncing ? 0.5 : 1 }}
+            >
+              <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? 'Syncing…' : 'Sync GHL'}
+            </button>
+          </div>
         </div>
 
-        <button
-          onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth()) }}
-          className="rounded-lg px-3 py-1.5 text-[12.5px] font-medium text-[#9ca3af] transition-colors hover:bg-white/5 hover:text-[#f9fafb]"
-          style={{ border: '1px solid rgba(255,255,255,0.08)' }}
-        >
-          Today
-        </button>
+        {syncMsg && <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>{syncMsg}</p>}
 
-        {/* Stat pills + sync button */}
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <StatPill label={`${callsCount} call${callsCount !== 1 ? 's' : ''} this month`} color="#60a5fa" bg="rgba(37,99,235,0.12)" />
-          <StatPill label={`${showedCount} showed`} color="#fbbf24" bg="rgba(245,158,11,0.12)" />
-          <StatPill label={`${closedCount} closed`} color="#34d399" bg="rgba(16,185,129,0.12)" />
-          <button
-            onClick={async () => {
-              setSyncing(true)
-              setSyncMsg(null)
-              try {
-                const res = await fetch('/api/ghl/sync-appointments', { method: 'POST' })
-                const data = await res.json() as { synced?: number; error?: string }
-                if (res.ok) {
-                  setSyncMsg(`Synced ${data.synced} appointments`)
-                  window.location.reload()
-                } else {
-                  setSyncMsg(data.error ?? 'Sync failed')
-                }
-              } catch {
-                setSyncMsg('Network error')
-              } finally {
-                setSyncing(false)
-              }
-            }}
-            disabled={syncing}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50"
-            style={{ backgroundColor: 'rgba(37,99,235,0.15)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.2)' }}
-          >
-            <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? 'Syncing…' : 'Sync GHL'}
-          </button>
+        {/* Calendar grid */}
+        <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, overflow: 'hidden' }}>
+
+          {/* Day headers row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '56px repeat(7, 1fr)', backgroundColor: '#0d1117', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div />
+            {weekDays.map((day, i) => {
+              const isToday = dayKey(day) === todayStr
+              return (
+                <div key={i} style={{ padding: '10px 8px', textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.04)' }}>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                    {day.toLocaleDateString('en-US', { weekday: 'short' })}
+                  </p>
+                  <p style={{
+                    fontSize: 20, fontWeight: 700, lineHeight: 1,
+                    color: isToday ? '#fff' : '#9ca3af',
+                    width: 34, height: 34, borderRadius: '50%', margin: '0 auto',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: isToday ? '#2563eb' : 'transparent',
+                  }}>
+                    {day.getDate()}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Time grid — scrollable */}
+          <div style={{ maxHeight: 'calc(100vh - 280px)', overflowY: 'auto', position: 'relative', backgroundColor: '#111827' }}>
+
+            {/* Current time line */}
+            {showCurrentTime && (
+              <div style={{
+                position: 'absolute',
+                top: currentMinutesFrom6am * (HOUR_HEIGHT / 60),
+                left: 56,
+                right: 0,
+                height: 2,
+                backgroundColor: '#ef4444',
+                zIndex: 10,
+                pointerEvents: 'none',
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#ef4444', position: 'absolute', left: -4, top: -3 }} />
+              </div>
+            )}
+
+            {HOURS.map((hour) => (
+              <div key={hour} style={{ display: 'grid', gridTemplateColumns: '56px repeat(7, 1fr)', minHeight: HOUR_HEIGHT, borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                <div style={{ padding: '4px 8px', fontSize: 11, color: '#374151', textAlign: 'right', paddingTop: 6, flexShrink: 0 }}>
+                  {hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
+                </div>
+
+                {weekDays.map((day, di) => {
+                  const slotLeads = getLeadsForSlot(day, hour)
+                  const isToday = dayKey(day) === todayStr
+                  return (
+                    <div key={di} style={{
+                      borderLeft: '1px solid rgba(255,255,255,0.04)',
+                      position: 'relative',
+                      padding: 2,
+                      backgroundColor: isToday ? 'rgba(37,99,235,0.02)' : 'transparent',
+                    }}>
+                      {slotLeads.map((lead) => {
+                        const s = STAGE_STYLE[lead.stage] ?? STAGE_STYLE.call_booked
+                        const t = lead.offer_tier ? TIER_LABEL[lead.offer_tier] : null
+                        const time = new Date(lead.booked_at!).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                        return (
+                          <button
+                            key={lead.id}
+                            onClick={() => setSelected(lead)}
+                            style={{
+                              display: 'block', width: '100%', textAlign: 'left',
+                              padding: '4px 6px', borderRadius: 6, marginBottom: 2,
+                              backgroundColor: s.bg,
+                              border: `1px solid ${s.dot}30`,
+                              cursor: 'pointer', minHeight: 48,
+                            }}
+                          >
+                            <p style={{ fontSize: 11.5, fontWeight: 700, color: s.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {lead.name}
+                            </p>
+                            <p style={{ fontSize: 10, color: `${s.text}99`, marginTop: 1 }}>{time}{t ? ` · ${t}` : ''}</p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-      {syncMsg && (
-        <p className="mb-4 text-[12px] text-[#9ca3af]">{syncMsg}</p>
-      )}
 
-      {/* ── Calendar grid ────────────────────────────────────────────── */}
-      <div
-        className="overflow-hidden rounded-xl"
-        style={{ border: '1px solid rgba(255,255,255,0.06)' }}
-      >
-        {/* Day headers */}
-        <div className="grid grid-cols-7" style={{ backgroundColor: '#0d1117', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          {DAY_HEADERS.map((d) => (
-            <div
-              key={d}
-              className="py-2.5 text-center text-[11px] font-semibold uppercase tracking-widest text-[#4b5563]"
-            >
-              {d}
-            </div>
+      {/* ── Right sidebar ── */}
+      <div style={{ width: 200, flexShrink: 0, marginLeft: 16, padding: '0 0 0 16px', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+        <p style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.6)', marginBottom: 16 }}>Manage View</p>
+
+        {/* Closers filter */}
+        {closers.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Closers</p>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={selectedClosers.has('all')}
+                onChange={() => {
+                  setSelectedClosers(selectedClosers.has('all')
+                    ? new Set(closers.map(c => c.id))
+                    : new Set(['all']))
+                }}
+                style={{ accentColor: '#2563eb' }}
+              />
+              <span style={{ fontSize: 12.5, color: '#9ca3af' }}>All Closers</span>
+            </label>
+            {closers.map(c => (
+              <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedClosers.has('all') || selectedClosers.has(c.id)}
+                  onChange={() => {
+                    if (selectedClosers.has('all')) {
+                      const next = new Set(closers.map(x => x.id))
+                      next.delete(c.id)
+                      setSelectedClosers(next)
+                    } else {
+                      const next = new Set(selectedClosers)
+                      if (next.has(c.id)) next.delete(c.id)
+                      else next.add(c.id)
+                      if (next.size === closers.length) next.add('all')
+                      setSelectedClosers(next)
+                    }
+                  }}
+                  style={{ accentColor: '#2563eb' }}
+                />
+                <span style={{ fontSize: 12.5, color: '#9ca3af', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {/* Tier filter */}
+        <div>
+          <p style={{ fontSize: 11, fontWeight: 600, color: '#4b5563', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Offer Tier</p>
+          {[
+            { key: 'ht', label: 'High Ticket', color: '#a78bfa' },
+            { key: 'mt', label: 'Mid Ticket',  color: '#60a5fa' },
+            { key: 'lt', label: 'Low Ticket',  color: '#34d399' },
+          ].map(t => (
+            <label key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={selectedTiers.has(t.key)}
+                onChange={() => {
+                  const next = new Set(selectedTiers)
+                  if (next.has(t.key)) next.delete(t.key)
+                  else next.add(t.key)
+                  setSelectedTiers(next)
+                }}
+                style={{ accentColor: t.color }}
+              />
+              <span style={{ fontSize: 12.5, color: '#9ca3af' }}>{t.label}</span>
+            </label>
           ))}
         </div>
-
-        {/* Cells */}
-        <div className="grid grid-cols-7" style={{ backgroundColor: '#111827' }}>
-          {grid.map((cell, i) => {
-            const key = dateKey(cell.date)
-            const isToday = key === todayKey
-            const cellLeads = leadsByDate.get(key) ?? []
-            const shown = cellLeads.slice(0, 2)
-            const overflow = cellLeads.length - 2
-
-            return (
-              <div
-                key={i}
-                className="min-h-[100px] p-2"
-                style={{
-                  borderRight:  (i % 7) < 6 ? '1px solid rgba(255,255,255,0.04)' : undefined,
-                  borderBottom: i < 35       ? '1px solid rgba(255,255,255,0.04)' : undefined,
-                  backgroundColor: isToday ? 'rgba(37,99,235,0.06)' : undefined,
-                  ...(isToday ? { outline: '1px solid #2563eb', outlineOffset: '-1px' } : {}),
-                }}
-              >
-                {/* Date number */}
-                <p
-                  className="mb-1.5 text-[12px] font-medium"
-                  style={{ color: !cell.isCurrentMonth ? '#374151' : isToday ? '#60a5fa' : '#9ca3af' }}
-                >
-                  {cell.date.getDate()}
-                </p>
-
-                {/* Event chips */}
-                <div className="space-y-1">
-                  {shown.map((lead) => {
-                    const s = STAGE_STYLE[lead.stage] ?? STAGE_STYLE.call_booked
-                    return (
-                      <button
-                        key={lead.id}
-                        onClick={() => setSelected(lead)}
-                        className="flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-[11px] font-medium transition-opacity hover:opacity-80"
-                        style={{ backgroundColor: s.bg, color: s.text }}
-                      >
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: s.dot }} />
-                        <span className="truncate">
-                          {lead.name.length > 14 ? lead.name.slice(0, 14) + '…' : lead.name}
-                        </span>
-                      </button>
-                    )
-                  })}
-                  {overflow > 0 && (
-                    <p className="pl-1.5 text-[11px] text-white/40">+{overflow} more</p>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
       </div>
 
-      {/* ── Empty state ───────────────────────────────────────────────── */}
-      {callsCount === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 pt-32">
-          <Calendar className="h-10 w-10 text-[#374151]" />
-          <p className="text-[14px] text-[#4b5563]">No calls booked this month</p>
-        </div>
-      )}
-
-      {/* ── Detail panel ──────────────────────────────────────────────── */}
-      {selected && (
-        <DetailPanel lead={selected} onClose={() => setSelected(null)} />
-      )}
+      {/* Detail panel */}
+      {selected && <DetailPanel lead={selected} onClose={() => setSelected(null)} />}
     </div>
   )
 }
