@@ -7,7 +7,12 @@ import {
   Clock, TrendingDown, Mail, Phone, Link2, User, ChevronDown,
 } from 'lucide-react'
 import type { LeadWithRelations, LeadNote, LeadStage, DowngradeStage, OfferTier } from '@/types/crm'
-import { MAIN_PIPELINE_STAGES, DOWNGRADE_PIPELINE_STAGES } from '@/types/crm'
+
+const MAIN_PIPELINE_STAGES = [
+  'dmd', 'qualifying', 'qualified', 'call_booked', 'showed',
+  'closed_won', 'closed_lost', 'follow_up', 'nurture', 'disqualified', 'dead',
+]
+const DOWNGRADE_PIPELINE_STAGES = ['offered', 'interested', 'booked', 'closed']
 import ActivityTimeline from '@/components/crm/ActivityTimeline'
 import DisqualifyModal from '@/components/crm/DisqualifyModal'
 
