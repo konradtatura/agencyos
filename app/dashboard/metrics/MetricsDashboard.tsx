@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer,
 } from 'recharts'
 import {
   Users, Phone, Eye, DollarSign, TrendingUp, TrendingDown,
-  Loader2, Minus,
+  Loader2, Globe, Monitor, Smartphone, Tablet, Minus, X,
 } from 'lucide-react'
 import type { VslMetricsResponse } from '@/app/api/metrics/vsl/route'
+import type { FunnelMetricsResponse } from '@/app/api/metrics/funnel/route'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -24,6 +26,10 @@ const RANGES: { value: Range; label: string }[] = [
   { value: 'custom', label: 'Custom' },
 ]
 
+const DEVICE_COLORS = ['#2563eb', '#7c3aed', '#10b981']
+const DEVICE_LABELS = ['Desktop', 'Mobile', 'Tablet']
+const DEVICE_ICONS  = [Monitor, Smartphone, Tablet]
+
 const TOOLTIP_STYLE = {
   background: '#0d1117',
   border: '1px solid rgba(255,255,255,0.08)',
@@ -31,6 +37,21 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
   color: 'rgba(255,255,255,0.7)',
   boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+}
+
+// Small lookup for common country names from ISO-2 codes
+const COUNTRY_NAMES: Record<string, string> = {
+  US: 'United States', GB: 'United Kingdom', CA: 'Canada', AU: 'Australia',
+  DE: 'Germany', FR: 'France', IN: 'India', BR: 'Brazil', MX: 'Mexico',
+  PH: 'Philippines', NG: 'Nigeria', ZA: 'South Africa', ID: 'Indonesia',
+  JP: 'Japan', KR: 'South Korea', SG: 'Singapore', AE: 'United Arab Emirates',
+  NL: 'Netherlands', ES: 'Spain', IT: 'Italy', PK: 'Pakistan', BD: 'Bangladesh',
+  MY: 'Malaysia', TH: 'Thailand', VN: 'Vietnam', GH: 'Ghana', KE: 'Kenya',
+  EG: 'Egypt', SA: 'Saudi Arabia', TR: 'Turkey', AR: 'Argentina', CO: 'Colombia',
+  NZ: 'New Zealand', IE: 'Ireland', SE: 'Sweden', NO: 'Norway', DK: 'Denmark',
+  FI: 'Finland', PT: 'Portugal', CH: 'Switzerland', AT: 'Austria', BE: 'Belgium',
+  PL: 'Poland', RU: 'Russia', UA: 'Ukraine', CL: 'Chile', PE: 'Peru',
+  HK: 'Hong Kong', TW: 'Taiwan', IL: 'Israel', QA: 'Qatar', KW: 'Kuwait',
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -41,6 +62,18 @@ function fmt$(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
   return `$${n.toFixed(0)}`
+}
+function capitalize(s: string) {
+  return s.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+function countryFlag(code: string): string {
+  if (!code || code.length !== 2) return '🌍'
+  return Array.from(code.toUpperCase())
+    .map(c => String.fromCodePoint(c.charCodeAt(0) + 127397))
+    .join('')
+}
+function countryName(code: string): string {
+  return COUNTRY_NAMES[code.toUpperCase()] ?? code.toUpperCase()
 }
 function fmtDate(d: string) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -65,8 +98,9 @@ function SkeletonKpi() {
   )
 }
 
+
 function SkeletonChart({ height = 180 }: { height?: number }) {
-  return <div className="rounded-xl bg-white/[0.02] animate-pulse" style={{ height }} />
+  return <div className={`rounded-xl bg-white/[0.02] animate-pulse`} style={{ height }} />
 }
 
 // ── KPI Card ───────────────────────────────────────────────────────────────
@@ -81,8 +115,8 @@ interface KpiCardProps {
 }
 
 function KpiCard({ label, value, delta, icon, accent = '#2563eb', noTrend }: KpiCardProps) {
-  const isUp   = delta !== null && delta >= 0
-  const isDown = delta !== null && delta < 0
+  const isUp    = delta !== null && delta >= 0
+  const isDown  = delta !== null && delta < 0
 
   return (
     <div className="rounded-2xl border border-white/[0.06] bg-[#0d1117] p-5 flex flex-col min-w-0">
@@ -130,34 +164,54 @@ function KpiCard({ label, value, delta, icon, accent = '#2563eb', noTrend }: Kpi
   )
 }
 
-// ── Funnel Row (CRM) ───────────────────────────────────────────────────────
+// ── Vertical Funnel ────────────────────────────────────────────────────────
+
+function truncate(s: string, max = 30): string {
+  if (s.length <= max) return s
+  // Break at last space before the limit
+  const cut = s.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut) + '…'
+}
 
 interface FunnelRowProps {
-  title:      string
-  count:      number
-  maxCount:   number
-  barColor:   string
-  subValue?:  string
-  icon:       React.ReactNode
-  isLast?:    boolean
+  title:       string
+  count:       number
+  maxCount:    number
+  barColor:    string
+  subValue?:   string
+  icon:        React.ReactNode
+  isLast?:     boolean
 }
 
 function FunnelRow({ title, count, maxCount, barColor, subValue, icon, isLast }: FunnelRowProps) {
   const pct = maxCount > 0 ? Math.max(4, (count / maxCount) * 100) : 4
+  const displayTitle = truncate(title)
+  const needsTooltip = title.length > 30
 
   return (
     <div className="rounded-xl border border-white/[0.06] bg-[#0d1117] px-5 py-4">
       <div className="flex items-center gap-4">
+        {/* Icon */}
         <div
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
           style={{ background: `${barColor}18`, color: barColor }}
         >
           {icon}
         </div>
+
+        {/* Name + bar */}
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex items-baseline gap-3">
-            <span className="text-[13px] font-medium text-white/80">{title}</span>
-            {subValue && <span className="text-[11px] text-white/30">{subValue}</span>}
+            <span
+              className="text-[13px] font-medium text-white/80"
+              title={needsTooltip ? title : undefined}
+            >
+              {displayTitle}
+            </span>
+            {subValue && (
+              <span className="text-[11px] text-white/30">{subValue}</span>
+            )}
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.04]">
             <div
@@ -166,6 +220,8 @@ function FunnelRow({ title, count, maxCount, barColor, subValue, icon, isLast }:
             />
           </div>
         </div>
+
+        {/* Count */}
         <div className="shrink-0 text-right">
           <span
             className="font-mono text-[22px] font-bold tabular-nums leading-none"
@@ -188,6 +244,7 @@ function FunnelConnector({ pct }: { pct: number | null }) {
 
   return (
     <div className="flex items-center gap-3 py-0.5 pl-[52px]">
+      {/* Vertical line */}
       <div className="flex w-8 flex-col items-center">
         <div className="h-5 w-px" style={{ backgroundColor: color, opacity: 0.4 }} />
         <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden>
@@ -195,10 +252,28 @@ function FunnelConnector({ pct }: { pct: number | null }) {
         </svg>
       </div>
       {pct !== null && (
-        <span className="text-[11px] font-bold tabular-nums font-mono" style={{ color }}>
+        <span
+          className="text-[11px] font-bold tabular-nums font-mono"
+          style={{ color }}
+        >
           {pct.toFixed(1)}% →
         </span>
       )}
+    </div>
+  )
+}
+
+function SkeletonFunnelRow() {
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-[#0d1117] px-5 py-4 animate-pulse">
+      <div className="flex items-center gap-4">
+        <div className="h-8 w-8 rounded-lg bg-white/[0.05]" />
+        <div className="flex-1 space-y-2">
+          <div className="h-3 w-32 rounded bg-white/[0.05]" />
+          <div className="h-2 w-full rounded-full bg-white/[0.04]" />
+        </div>
+        <div className="h-6 w-12 rounded bg-white/[0.05]" />
+      </div>
     </div>
   )
 }
@@ -222,30 +297,39 @@ export default function MetricsDashboard() {
   const [range, setRange]           = useState<Range>('30d')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo]     = useState('')
+  const [funnelName, setFunnelName] = useState<string>('')   // '' = all funnels
+  const [funnelNames, setFunnelNames] = useState<string[]>([])
   const [vslData, setVslData]       = useState<VslMetricsResponse | null>(null)
-  const [totalVisitors, setTotalVisitors]       = useState(0)
-  const [totalSubmissions, setTotalSubmissions] = useState(0)
+  const [funnelData, setFunnelData] = useState<FunnelMetricsResponse | null>(null)
   const [loading, setLoading]       = useState(true)
+  const [trackingBannerDismissed, setTrackingBannerDismissed] = useState(false)
+
+  // Fetch distinct funnel names once on mount
+  useEffect(() => {
+    fetch('/api/metrics/funnel/names')
+      .then(r => r.ok ? r.json() : { names: [] })
+      .then((d: { names: string[] }) => setFunnelNames(d.names))
+      .catch(() => {})
+  }, [])
 
   const buildParams = useCallback(() => {
     const p = new URLSearchParams({ range })
     if (range === 'custom' && customFrom) p.set('from', customFrom)
     if (range === 'custom' && customTo)   p.set('to', customTo)
+    if (funnelName)                       p.set('funnel', funnelName)
     return p
-  }, [range, customFrom, customTo])
+  }, [range, customFrom, customTo, funnelName])
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
       const params = buildParams()
-      const [vslRes, statsRes, formsRes] = await Promise.all([
+      const [vslRes, funnelRes] = await Promise.all([
         fetch(`/api/metrics/vsl?${params}`),
-        fetch(`/api/integrations/ghl/funnel-stats?${params}`),
-        fetch(`/api/integrations/ghl/form-submissions?${params}`),
+        fetch(`/api/metrics/funnel?${params}`),
       ])
-      if (vslRes.ok)   setVslData(await vslRes.json() as VslMetricsResponse)
-      if (statsRes.ok) setTotalVisitors(((await statsRes.json()) as { totalVisitors: number }).totalVisitors)
-      if (formsRes.ok) setTotalSubmissions(((await formsRes.json()) as { totalSubmissions: number }).totalSubmissions)
+      if (vslRes.ok)    setVslData(await vslRes.json() as VslMetricsResponse)
+      if (funnelRes.ok) setFunnelData(await funnelRes.json() as FunnelMetricsResponse)
     } finally {
       setLoading(false)
     }
@@ -255,20 +339,41 @@ export default function MetricsDashboard() {
 
   // ── Derived values ──────────────────────────────────────────────────────
 
-  const crm  = vslData?.current
-  const prev = vslData?.previous
+  const crm        = vslData?.current
+  const prev       = vslData?.previous
+  const steps       = funnelData?.steps ?? []
+  const pageNames   = funnelData?.page_names ?? []
+  const dailyViews  = funnelData?.daily_views ?? []
 
-  // KPI deltas (CRM-sourced)
-  const bookedDelta    = pctDelta(crm?.booked ?? 0, prev?.booked ?? 0)
-  const showRateDelta  = prev && crm ? pctDelta(crm.show_rate,  prev.show_rate)  : null
-  const closeRateDelta = prev && crm ? pctDelta(crm.close_rate, prev.close_rate) : null
+  const totalVisitors     = funnelData?.total_visitors ?? 0
+  const prevTotalVisitors = funnelData?.prev_total_visitors ?? 0
 
-  // Apply → Book: form submissions ÷ total visitors
-  const applyBook = totalVisitors > 0
-    ? (totalSubmissions / totalVisitors) * 100
+  // KPI deltas
+  const visitorsDelta    = pctDelta(totalVisitors, prevTotalVisitors)
+  const bookedDelta      = pctDelta(crm?.booked ?? 0, prev?.booked ?? 0)
+  const showRateDelta    = prev && crm
+    ? pctDelta(crm.show_rate, prev.show_rate)
+    : null
+  const closeRateDelta   = prev && crm
+    ? pctDelta(crm.close_rate, prev.close_rate)
+    : null
+
+  // Apply → Book conversion
+  const applyBook        = totalVisitors > 0 && crm
+    ? (crm.booked / totalVisitors) * 100
     : 0
+  const prevApplyBook    = prevTotalVisitors > 0 && prev
+    ? (prev.booked / prevTotalVisitors) * 100
+    : 0
+  const applyBookDelta   = pctDelta(applyBook, prevApplyBook)
 
   // CRM step definitions
+  const lastPageUnique = steps.length > 0 ? steps[steps.length - 1].unique_views : 0
+  const pageToBookedPct =
+    lastPageUnique > 0 && crm && crm.booked > 0
+      ? Math.round((crm.booked / lastPageUnique) * 1000) / 10
+      : null
+
   const crmSteps = [
     {
       key: 'call_booked', title: 'Call Booked', icon: <Phone size={12} />,
@@ -294,7 +399,7 @@ export default function MetricsDashboard() {
     },
   ]
 
-  // Daily booked chart
+  // Daily booked chart (built from leads array in VSL response)
   const dailyBooked = (() => {
     const leads = vslData?.leads ?? []
     const map: Record<string, number> = {}
@@ -306,7 +411,24 @@ export default function MetricsDashboard() {
       .map(([date, count]) => ({ date, count }))
   })()
 
-  const hasData = !loading && ((crm?.booked ?? 0) > 0 || totalVisitors > 0)
+  // Device breakdown
+  const deviceBreakdown = funnelData?.overall_device_breakdown ?? { desktop: 0, mobile: 0, tablet: 0 }
+  const deviceTotal = deviceBreakdown.desktop + deviceBreakdown.mobile + deviceBreakdown.tablet
+  const deviceChartData = [
+    { name: 'Desktop', value: deviceBreakdown.desktop },
+    { name: 'Mobile',  value: deviceBreakdown.mobile },
+    { name: 'Tablet',  value: deviceBreakdown.tablet },
+  ]
+
+  // Traffic sources
+  const referrers = funnelData?.overall_referrers ?? []
+  const referrerTotal = referrers.reduce((s, r) => s + r.count, 0)
+
+  // Countries
+  const countries = funnelData?.country_breakdown ?? []
+  const countryTotal = countries.reduce((s, c) => s + c.count, 0)
+
+  const hasData = !loading && (totalVisitors > 0 || (crm?.booked ?? 0) > 0)
 
   // ── Render ──────────────────────────────────────────────────────────────
 
@@ -349,8 +471,42 @@ export default function MetricsDashboard() {
           </div>
         )}
 
+        {/* Funnel selector — only shown when 2+ named funnels exist */}
+        {funnelNames.length > 1 && (
+          <select
+            value={funnelName}
+            onChange={e => setFunnelName(e.target.value)}
+            className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs text-white/70 focus:outline-none focus:border-white/20"
+          >
+            <option value="">All funnels</option>
+            {funnelNames.map(n => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        )}
+
         {loading && <Loader2 size={13} className="animate-spin text-white/30" />}
       </div>
+
+      {/* ── Tracking script banner ────────────────────────────────────────── */}
+      {!loading && totalVisitors === 0 && (crm?.booked ?? 0) > 0 && !trackingBannerDismissed && (
+        <div
+          className="flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-[13px]"
+          style={{
+            backgroundColor: 'rgba(245,158,11,0.08)',
+            border: '1px solid rgba(245,158,11,0.15)',
+            color: '#fbbf24',
+          }}
+        >
+          <span>Install the tracking script on your funnel pages to see visitor analytics.</span>
+          <button
+            onClick={() => setTrackingBannerDismissed(true)}
+            className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* ── Section 1: KPI Bar ────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -361,16 +517,15 @@ export default function MetricsDashboard() {
             <KpiCard
               label="Total Visitors"
               value={fmtNum(totalVisitors)}
-              delta={null}
+              delta={visitorsDelta}
               icon={<Users size={13} />}
-              noTrend
             />
             <KpiCard
               label="Apply → Book"
               value={fmtPct(applyBook)}
-              delta={null}
+              delta={applyBookDelta}
               icon={<TrendingUp size={13} />}
-              noTrend
+              noTrend={prevTotalVisitors === 0}
             />
             <KpiCard
               label="Total Booked Calls"
@@ -422,59 +577,370 @@ export default function MetricsDashboard() {
         </div>
       )}
 
-      {/* ── Booked Calls by Day ───────────────────────────────────────────── */}
+      {/* ── Section 2: Visual Funnel ──────────────────────────────────────── */}
       <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
-        <SectionHeader icon={<Phone size={13} />} label="Booked Calls by Day" />
+        <SectionHeader icon={<TrendingUp size={13} />} label="Conversion Funnel" />
+
+        {(() => {
+          // Build the full ordered list of rows for the vertical funnel
+          const pageStepColors = ['#2563eb', '#3b6fd4', '#4e7abf', '#5f83aa', '#6e8c96']
+          const maxCount = steps.length > 0 ? steps[0].unique_views : (crm?.booked ?? 0)
+
+          if (loading) {
+            return (
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => <SkeletonFunnelRow key={i} />)}
+              </div>
+            )
+          }
+
+          if (steps.length === 0 && (crm?.booked ?? 0) === 0 && (crm?.showed ?? 0) === 0 && (crm?.closed_won ?? 0) === 0) {
+            return (
+              <div className="flex h-32 items-center justify-center text-white/20 text-sm">
+                No funnel data for this period
+              </div>
+            )
+          }
+
+          return (
+            <div className="space-y-0">
+              {steps.map((step, i) => (
+                <div key={step.page_name}>
+                  <FunnelRow
+                    title={capitalize(step.page_name)}
+                    count={step.unique_views}
+                    maxCount={maxCount}
+                    barColor={pageStepColors[Math.min(i, pageStepColors.length - 1)]}
+                    subValue={`${fmtNum(step.all_views)} total views`}
+                    icon={<Eye size={13} />}
+                  />
+                  <FunnelConnector
+                    pct={i < steps.length - 1 ? step.conversion_to_next : pageToBookedPct}
+                  />
+                </div>
+              ))}
+
+              {crmSteps.map((step, i) => (
+                <div key={step.key}>
+                  <FunnelRow
+                    title={step.title}
+                    count={step.count}
+                    maxCount={maxCount}
+                    barColor={step.accentColor}
+                    subValue={step.subLabel}
+                    icon={step.icon}
+                    isLast={i === crmSteps.length - 1}
+                  />
+                  {i < crmSteps.length - 1 && (
+                    <FunnelConnector pct={step.convNext} />
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+      </div>
+
+      {/* ── Section 3: Daily Trends ───────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Page Views Area Chart */}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+          <SectionHeader icon={<Eye size={13} />} label="Page Views by Day" />
+
+          {loading ? (
+            <SkeletonChart />
+          ) : dailyViews.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
+              No data for this period
+            </div>
+          ) : (() => {
+            const chartData = dailyViews.map(pt => ({
+              date: pt.date as string,
+              views: pageNames.reduce(
+                (s, n) => s + (typeof pt[n] === 'number' ? (pt[n] as number) : 0),
+                0
+              ),
+            }))
+            return (
+              <ResponsiveContainer width="100%" height={180}>
+                <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="pgGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#2563eb" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="#ffffff" strokeOpacity={0.05} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
+                    axisLine={false} tickLine={false}
+                    tickFormatter={fmtDate}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
+                    axisLine={false} tickLine={false} allowDecimals={false}
+                  />
+                  <RTooltip
+                    cursor={{ stroke: 'rgba(255,255,255,0.08)', strokeWidth: 1 }}
+                    contentStyle={TOOLTIP_STYLE}
+                    labelFormatter={d => fmtDate(d as string)}
+                    formatter={(v: unknown) => [fmtNum(Number(v)), 'Views']}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="views"
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    fill="url(#pgGrad)"
+                    dot={false}
+                    activeDot={{ r: 4, fill: '#2563eb', strokeWidth: 0 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )
+          })()}
+        </div>
+
+        {/* Booked Calls Bar Chart */}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+          <SectionHeader icon={<Phone size={13} />} label="Booked Calls by Day" />
+
+          {loading ? (
+            <SkeletonChart />
+          ) : dailyBooked.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
+              No data for this period
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart
+                data={dailyBooked}
+                margin={{ top: 4, right: 4, left: -24, bottom: 0 }}
+                barCategoryGap="40%"
+              >
+                <CartesianGrid vertical={false} stroke="#ffffff" strokeOpacity={0.05} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
+                  axisLine={false} tickLine={false}
+                  tickFormatter={fmtDate}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
+                  axisLine={false} tickLine={false} allowDecimals={false}
+                />
+                <RTooltip
+                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                  contentStyle={TOOLTIP_STYLE}
+                  labelFormatter={d => fmtDate(d as string)}
+                  formatter={(v: unknown) => [fmtNum(Number(v)), 'Booked']}
+                />
+                <Bar
+                  dataKey="count"
+                  fill="#2563eb"
+                  radius={[4, 4, 0, 0]}
+                  isAnimationActive={true}
+                  animationDuration={600}
+                  animationEasing="ease-out"
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
+      {/* ── Section 4: Traffic Sources + Device Breakdown ─────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* Traffic Sources */}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+          <SectionHeader icon={<Globe size={13} />} label="Traffic Sources" />
+
+          {loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="animate-pulse">
+                  <div className="flex justify-between mb-1.5">
+                    <div className="h-2.5 w-20 rounded bg-white/[0.06]" />
+                    <div className="h-2.5 w-10 rounded bg-white/[0.04]" />
+                  </div>
+                  <div className="h-2 rounded-full bg-white/[0.04]" style={{ width: `${80 - i * 12}%` }} />
+                </div>
+              ))}
+            </div>
+          ) : referrers.length === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
+              No referrer data yet
+            </div>
+          ) : (
+            <div className="space-y-3.5">
+              {referrers.map(r => {
+                const pct = referrerTotal > 0 ? (r.count / referrerTotal) * 100 : 0
+                return (
+                  <div key={r.source}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className="text-[12px] font-medium text-white/70">
+                        {capitalize(r.source)}
+                      </span>
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-[11px] font-mono text-white/40">
+                          {fmtNum(r.count)}
+                        </span>
+                        <span className="text-[11px] font-semibold text-white/50 tabular-nums w-10 text-right">
+                          {pct.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: `${pct}%`,
+                          background: 'linear-gradient(90deg, #2563eb, #3b82f6)',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Device Breakdown */}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+          <SectionHeader icon={<Monitor size={13} />} label="Device Breakdown" />
+
+          {loading ? (
+            <SkeletonChart height={160} />
+          ) : deviceTotal === 0 ? (
+            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
+              No device data yet
+            </div>
+          ) : (
+            <>
+              <div className="relative h-[160px]">
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie
+                      data={deviceChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={72}
+                      paddingAngle={3}
+                      dataKey="value"
+                      startAngle={90}
+                      endAngle={-270}
+                      strokeWidth={0}
+                    >
+                      {deviceChartData.map((_, i) => (
+                        <Cell key={i} fill={DEVICE_COLORS[i]} />
+                      ))}
+                    </Pie>
+                    <RTooltip
+                      contentStyle={TOOLTIP_STYLE}
+                      formatter={(v: unknown) => [fmtNum(Number(v)), '']}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="text-center">
+                    <div className="font-mono text-lg font-bold text-white tabular-nums leading-none">
+                      {fmtNum(deviceTotal)}
+                    </div>
+                    <div className="text-[9px] uppercase tracking-widest text-white/30 mt-0.5">
+                      sessions
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-center gap-5 mt-2">
+                {deviceChartData.map((d, i) => {
+                  const pct = deviceTotal > 0 ? ((d.value / deviceTotal) * 100).toFixed(1) : '0.0'
+                  const Icon = DEVICE_ICONS[i]
+                  return (
+                    <div key={d.name} className="flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: DEVICE_COLORS[i] }} />
+                        <Icon size={11} className="text-white/40" />
+                        <span className="text-[11px] text-white/50">{DEVICE_LABELS[i]}</span>
+                      </div>
+                      <span className="font-mono text-[13px] font-semibold text-white/70">{pct}%</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Section 5: Top Countries ─────────────────────────────────────── */}
+      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
+        <SectionHeader icon={<Globe size={13} />} label="Top Countries" />
 
         {loading ? (
-          <SkeletonChart />
-        ) : dailyBooked.length === 0 ? (
-          <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
-            No data for this period
+          <div className="space-y-0">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 py-3 border-b border-white/[0.04] animate-pulse">
+                <div className="w-6 h-4 rounded bg-white/[0.06]" />
+                <div className="h-2.5 w-28 rounded bg-white/[0.06] flex-1" />
+                <div className="h-2.5 w-12 rounded bg-white/[0.04]" />
+                <div className="h-2.5 w-10 rounded bg-white/[0.04]" />
+              </div>
+            ))}
+          </div>
+        ) : countries.length === 0 ? (
+          <div className="h-[120px] flex items-center justify-center text-white/20 text-sm">
+            No country data yet — IP lookup activates on new pageviews
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart
-              data={dailyBooked}
-              margin={{ top: 4, right: 4, left: -24, bottom: 0 }}
-              barCategoryGap="40%"
-            >
-              <CartesianGrid vertical={false} stroke="#ffffff" strokeOpacity={0.05} />
-              <XAxis
-                dataKey="date"
-                tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
-                axisLine={false} tickLine={false}
-                tickFormatter={fmtDate}
-                interval="preserveStartEnd"
-              />
-              <YAxis
-                tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
-                axisLine={false} tickLine={false} allowDecimals={false}
-              />
-              <RTooltip
-                cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                contentStyle={TOOLTIP_STYLE}
-                labelFormatter={d => fmtDate(d as string)}
-                formatter={(v: unknown) => [fmtNum(Number(v)), 'Booked']}
-              />
-              <Bar
-                dataKey="count"
-                fill="#2563eb"
-                radius={[4, 4, 0, 0]}
-                isAnimationActive={true}
-                animationDuration={600}
-                animationEasing="ease-out"
-              />
-            </BarChart>
-          </ResponsiveContainer>
+          <div>
+            <div className="flex items-center gap-4 pb-2 mb-1 border-b border-white/[0.06]">
+              <span className="text-[10px] uppercase tracking-widest text-white/25 w-6 text-center">#</span>
+              <span className="text-[10px] uppercase tracking-widest text-white/25 flex-1">Country</span>
+              <span className="text-[10px] uppercase tracking-widest text-white/25 w-16 text-right">Visitors</span>
+              <span className="text-[10px] uppercase tracking-widest text-white/25 w-12 text-right">Share</span>
+            </div>
+            {countries.map((c, i) => {
+              const pct = countryTotal > 0 ? ((c.count / countryTotal) * 100).toFixed(1) : '0.0'
+              return (
+                <div
+                  key={c.country}
+                  className="flex items-center gap-4 py-2.5 border-b border-white/[0.04] last:border-0 group"
+                >
+                  <span className="text-[11px] text-white/20 w-6 text-center tabular-nums font-mono">
+                    {i + 1}
+                  </span>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-base leading-none select-none">{countryFlag(c.country)}</span>
+                    <span className="text-[13px] text-white/70 truncate">{countryName(c.country)}</span>
+                  </div>
+                  <span className="font-mono text-[13px] font-semibold text-white/60 tabular-nums w-16 text-right">
+                    {fmtNum(c.count)}
+                  </span>
+                  <div className="w-12 flex items-center justify-end gap-1.5">
+                    <span className="font-mono text-[11px] text-white/35 tabular-nums">{pct}%</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
 
-      {/* Empty state */}
+      {/* Empty state for entire dashboard */}
       {!loading && !hasData && (
         <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-12 text-center">
           <TrendingUp className="w-8 h-8 text-white/10 mx-auto mb-3" />
           <p className="text-white/30 text-sm">No data for this period</p>
+          <p className="text-white/15 text-xs mt-1">Add the tracking script to your funnel pages to start collecting data</p>
         </div>
       )}
 

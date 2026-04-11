@@ -67,7 +67,13 @@
       "Bash(xargs cat:*)",
       "Bash(grep -n \"creator_profiles\\\\|enable row level\\\\|create policy\" /Users/konradtatura/agencyos/supabase/migrations/001_*.sql)",
       "Bash(grep -n \"profile\\\\.id\\\\|admin\\\\b\" /Users/konradtatura/agencyos/app/api/stories/sequences/[id]/route.ts)",
-      "Bash(find /Users/konradtatura/agencyos -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec grep -l \"supabase\\\\.realtime\\\\|\\\\.on\\(\" {} \\\\;)"
+      "Bash(find /Users/konradtatura/agencyos -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) -exec grep -l \"supabase\\\\.realtime\\\\|\\\\.on\\(\" {} \\\\;)",
+      "Bash(git commit -m 'feat: add Instagram analytics CSV export:*)",
+      "Bash(grep \"CREATE TABLE\" /Users/konradtatura/agencyos/supabase/migrations/*.sql)",
+      "Read(//tmp/**)",
+      "Bash(read f:*)",
+      "Bash(grep -v \"^$\")",
+      "Bash(git checkout:*)"
     ]
   }
 }
