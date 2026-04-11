@@ -918,6 +918,8 @@ export default function RevenueView() {
   const [summaryLoading,  setSummaryLoading]  = useState(true)
   const [summaryError,    setSummaryError]    = useState<string | null>(null)
   const [products,        setProducts]        = useState<Product[]>([])
+  const [syncing,         setSyncing]         = useState(false)
+  const [syncError,       setSyncError]       = useState<string | null>(null)
 
   const loadSummary = useCallback(async (r: string) => {
     setSummary(null)
@@ -946,6 +948,25 @@ export default function RevenueView() {
     const data = await res.json()
     setProducts(Array.isArray(data) ? data : [])
   }, [])
+
+  const handleSync = useCallback(async () => {
+    setSyncing(true)
+    setSyncError(null)
+    try {
+      const res  = await fetch('/api/revenue/whop/sync', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        setSyncError(json.error ?? 'Sync failed')
+        return
+      }
+    } catch {
+      setSyncError('Network error')
+      return
+    } finally {
+      setSyncing(false)
+    }
+    await Promise.all([loadSummary(range), loadProducts()])
+  }, [range, loadSummary, loadProducts])
 
   useEffect(() => { loadSummary(range) }, [range, loadSummary])
   useEffect(() => { loadProducts() }, [loadProducts])
@@ -978,13 +999,19 @@ export default function RevenueView() {
         ))}
 
         {/* Sync button */}
-        <button
-          onClick={() => { loadSummary(range); loadProducts() }}
-          className="ml-auto p-2 text-[#4b5563] hover:text-[#9ca3af]"
-          title="Refresh"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {syncError && (
+            <span className="text-[11px] text-[#f87171]">{syncError}</span>
+          )}
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="p-2 text-[#4b5563] hover:text-[#9ca3af] disabled:opacity-40"
+            title="Sync from Whop and refresh"
+          >
+            <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {tab === 'overview' && (
