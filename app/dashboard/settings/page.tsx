@@ -6,7 +6,8 @@ import DisconnectButton from './disconnect-button'
 import WhopSection from './whop-section'
 import DmWebhookSetup from './dm-webhook-setup'
 import GhlKeySection from './ghl-key-section'
-import { AlertTriangle, CheckCircle2, Link2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Link2, GitBranch } from 'lucide-react'
+import FunnelSetup from './funnel-setup'
 
 function IgIcon({ className }: { className?: string }) {
   return (
@@ -98,7 +99,7 @@ export default async function SettingsPage() {
   const username    = integration?.meta?.username ?? null
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-4xl">
       <PageHeader title="Settings" subtitle="Manage your account and integrations." />
 
       {/* ── Integrations ───────────────────────────────────────────── */}
@@ -276,6 +277,33 @@ export default async function SettingsPage() {
           </div>
         </IntegrationRow>
         <GhlKeySection />
+      </section>
+
+      {/* ── Funnel Setup ────────────────────────────────────────── */}
+      <section className="mt-8">
+        <SectionHeading title="Funnel Setup" />
+        <div
+          className="rounded-xl p-5 mb-4"
+          style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <div className="flex items-start gap-4 mb-5">
+            <div
+              className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+              style={{ backgroundColor: 'rgba(16,185,129,0.10)' }}
+            >
+              <GitBranch className="h-5 w-5 text-[#10b981]" />
+            </div>
+            <div>
+              <p className="mb-1 text-[14px] font-semibold text-[#f9fafb]">Conversion Branches</p>
+              <p className="text-[12.5px] text-[#6b7280]">
+                Define your funnel entry page and the three conversion branches (Low Ticket, Mid Ticket,
+                High Ticket). These paths are used to calculate per-branch visit counts and CVR on the
+                Metrics page.
+              </p>
+            </div>
+          </div>
+          <FunnelSetup />
+        </div>
       </section>
     </div>
   )

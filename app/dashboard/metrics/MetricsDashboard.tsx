@@ -9,9 +9,11 @@ import {
 import {
   Users, Phone, Eye, DollarSign, TrendingUp, TrendingDown,
   Loader2, Globe, Monitor, Smartphone, Tablet, Minus, X,
+  GitBranch,
 } from 'lucide-react'
 import type { VslMetricsResponse } from '@/app/api/metrics/vsl/route'
 import type { FunnelMetricsResponse } from '@/app/api/metrics/funnel/route'
+import type { FunnelBranchesResponse, BranchResult } from '@/app/api/metrics/funnel-branches/route'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -98,9 +100,8 @@ function SkeletonKpi() {
   )
 }
 
-
 function SkeletonChart({ height = 180 }: { height?: number }) {
-  return <div className={`rounded-xl bg-white/[0.02] animate-pulse`} style={{ height }} />
+  return <div className="rounded-xl bg-white/[0.02] animate-pulse" style={{ height }} />
 }
 
 // ── KPI Card ───────────────────────────────────────────────────────────────
@@ -115,8 +116,8 @@ interface KpiCardProps {
 }
 
 function KpiCard({ label, value, delta, icon, accent = '#2563eb', noTrend }: KpiCardProps) {
-  const isUp    = delta !== null && delta >= 0
-  const isDown  = delta !== null && delta < 0
+  const isUp   = delta !== null && delta >= 0
+  const isDown = delta !== null && delta < 0
 
   return (
     <div className="rounded-2xl border border-white/[0.06] bg-[#0d1117] p-5 flex flex-col min-w-0">
@@ -164,35 +165,33 @@ function KpiCard({ label, value, delta, icon, accent = '#2563eb', noTrend }: Kpi
   )
 }
 
-// ── Vertical Funnel ────────────────────────────────────────────────────────
+// ── Vertical Funnel (CRM) ──────────────────────────────────────────────────
 
 function truncate(s: string, max = 30): string {
   if (s.length <= max) return s
-  // Break at last space before the limit
   const cut = s.slice(0, max)
   const lastSpace = cut.lastIndexOf(' ')
   return (lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut) + '…'
 }
 
 interface FunnelRowProps {
-  title:       string
-  count:       number
-  maxCount:    number
-  barColor:    string
-  subValue?:   string
-  icon:        React.ReactNode
-  isLast?:     boolean
+  title:      string
+  count:      number
+  maxCount:   number
+  barColor:   string
+  subValue?:  string
+  icon:       React.ReactNode
+  isLast?:    boolean
 }
 
 function FunnelRow({ title, count, maxCount, barColor, subValue, icon, isLast }: FunnelRowProps) {
-  const pct = maxCount > 0 ? Math.max(4, (count / maxCount) * 100) : 4
+  const pct          = maxCount > 0 ? Math.max(4, (count / maxCount) * 100) : 4
   const displayTitle = truncate(title)
   const needsTooltip = title.length > 30
 
   return (
     <div className="rounded-xl border border-white/[0.06] bg-[#0d1117] px-5 py-4">
       <div className="flex items-center gap-4">
-        {/* Icon */}
         <div
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
           style={{ background: `${barColor}18`, color: barColor }}
@@ -200,7 +199,6 @@ function FunnelRow({ title, count, maxCount, barColor, subValue, icon, isLast }:
           {icon}
         </div>
 
-        {/* Name + bar */}
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex items-baseline gap-3">
             <span
@@ -221,7 +219,6 @@ function FunnelRow({ title, count, maxCount, barColor, subValue, icon, isLast }:
           </div>
         </div>
 
-        {/* Count */}
         <div className="shrink-0 text-right">
           <span
             className="font-mono text-[22px] font-bold tabular-nums leading-none"
@@ -244,7 +241,6 @@ function FunnelConnector({ pct }: { pct: number | null }) {
 
   return (
     <div className="flex items-center gap-3 py-0.5 pl-[52px]">
-      {/* Vertical line */}
       <div className="flex w-8 flex-col items-center">
         <div className="h-5 w-px" style={{ backgroundColor: color, opacity: 0.4 }} />
         <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden>
@@ -263,21 +259,6 @@ function FunnelConnector({ pct }: { pct: number | null }) {
   )
 }
 
-function SkeletonFunnelRow() {
-  return (
-    <div className="rounded-xl border border-white/[0.06] bg-[#0d1117] px-5 py-4 animate-pulse">
-      <div className="flex items-center gap-4">
-        <div className="h-8 w-8 rounded-lg bg-white/[0.05]" />
-        <div className="flex-1 space-y-2">
-          <div className="h-3 w-32 rounded bg-white/[0.05]" />
-          <div className="h-2 w-full rounded-full bg-white/[0.04]" />
-        </div>
-        <div className="h-6 w-12 rounded bg-white/[0.05]" />
-      </div>
-    </div>
-  )
-}
-
 // ── Section Header ─────────────────────────────────────────────────────────
 
 function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
@@ -291,88 +272,177 @@ function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }
   )
 }
 
+// ── Branch Column ──────────────────────────────────────────────────────────
+
+function BranchColumn({ branch }: { branch: BranchResult }) {
+  const hasData        = branch.steps.some(s => s.visits > 0)
+  const firstVisits    = branch.steps[0]?.visits ?? 0
+  const lastVisits     = branch.steps[branch.steps.length - 1]?.visits ?? 0
+  const cvr            = firstVisits > 0 ? (lastVisits / firstVisits) * 100 : 0
+
+  return (
+    <div
+      className="rounded-2xl flex flex-col"
+      style={{
+        backgroundColor: '#0d1117',
+        border: `1px solid ${branch.color}35`,
+      }}
+    >
+      {/* Header */}
+      <div
+        className="px-5 py-3 rounded-t-2xl flex items-center gap-2"
+        style={{ borderBottom: `1px solid ${branch.color}20` }}
+      >
+        <span
+          className="w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ backgroundColor: branch.color }}
+        />
+        <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: branch.color }}>
+          {branch.label}
+        </span>
+      </div>
+
+      {/* Steps */}
+      <div className="flex-1 p-4 space-y-0">
+        {!hasData ? (
+          <div className="h-full min-h-[120px] flex items-center justify-center">
+            <span className="text-[12px] text-white/20">No data yet</span>
+          </div>
+        ) : (
+          branch.steps.map((step, i) => {
+            const prev     = i > 0 ? branch.steps[i - 1].visits : null
+            const dropPct  = prev !== null && prev > 0
+              ? ((prev - step.visits) / prev) * 100
+              : null
+
+            return (
+              <div key={step.path}>
+                {i > 0 && (
+                  <div className="flex items-center gap-2 py-1.5 pl-1">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <div className="w-px h-3 bg-white/10" />
+                      <svg width="10" height="6" viewBox="0 0 10 6" fill="none" aria-hidden>
+                        <path d="M5 0 L5 3 M2.5 1.5 L5 4 L7.5 1.5" stroke="rgba(255,255,255,0.15)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                    {dropPct !== null && (
+                      <span
+                        className="text-[10px] font-mono tabular-nums"
+                        style={{
+                          color: dropPct >= 70 ? '#f87171' : dropPct >= 40 ? '#f59e0b' : '#6b7280',
+                        }}
+                      >
+                        ↓ {dropPct.toFixed(0)}% drop
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div
+                  className="rounded-xl px-4 py-3"
+                  style={{
+                    backgroundColor: '#111827',
+                    border: '1px solid rgba(255,255,255,0.05)',
+                  }}
+                >
+                  <div className="text-[11px] text-white/40 mb-1 truncate" title={step.label}>
+                    {step.label}
+                  </div>
+                  <div className="font-mono text-[22px] font-bold text-white tabular-nums leading-none">
+                    {fmtNum(step.visits)}
+                  </div>
+                  <div className="text-[10px] text-white/25 mt-0.5">visits</div>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* CVR footer */}
+      <div
+        className="px-5 py-3 rounded-b-2xl"
+        style={{ borderTop: `1px solid ${branch.color}20` }}
+      >
+        <div className="text-[10px] uppercase tracking-widest text-white/25 mb-0.5">CVR</div>
+        <div
+          className="font-mono text-[20px] font-bold tabular-nums"
+          style={{ color: hasData ? branch.color : 'rgba(255,255,255,0.1)' }}
+        >
+          {hasData ? fmtPct(cvr) : '—'}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export default function MetricsDashboard() {
-  const [range, setRange]           = useState<Range>('30d')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo]     = useState('')
-  const [funnelName, setFunnelName] = useState<string>('')   // '' = all funnels
-  const [funnelNames, setFunnelNames] = useState<string[]>([])
-  const [vslData, setVslData]       = useState<VslMetricsResponse | null>(null)
-  const [funnelData, setFunnelData] = useState<FunnelMetricsResponse | null>(null)
-  const [loading, setLoading]       = useState(true)
+  const [range,           setRange]           = useState<Range>('30d')
+  const [customFrom,      setCustomFrom]      = useState('')
+  const [customTo,        setCustomTo]        = useState('')
+  const [funnelName,      setFunnelName]      = useState<string>('')
+  const [selectedFunnelId,setSelectedFunnelId]= useState<string>('')
+  const [vslData,         setVslData]         = useState<VslMetricsResponse | null>(null)
+  const [funnelData,      setFunnelData]      = useState<FunnelMetricsResponse | null>(null)
+  const [branchData,      setBranchData]      = useState<FunnelBranchesResponse | null>(null)
+  const [loading,         setLoading]         = useState(true)
   const [trackingBannerDismissed, setTrackingBannerDismissed] = useState(false)
-
-  // Fetch distinct funnel names once on mount
-  useEffect(() => {
-    fetch('/api/metrics/funnel/names')
-      .then(r => r.ok ? r.json() : { names: [] })
-      .then((d: { names: string[] }) => setFunnelNames(d.names))
-      .catch(() => {})
-  }, [])
 
   const buildParams = useCallback(() => {
     const p = new URLSearchParams({ range })
     if (range === 'custom' && customFrom) p.set('from', customFrom)
     if (range === 'custom' && customTo)   p.set('to', customTo)
     if (funnelName)                       p.set('funnel', funnelName)
+    if (selectedFunnelId)                 p.set('funnel_id', selectedFunnelId)
     return p
-  }, [range, customFrom, customTo, funnelName])
+  }, [range, customFrom, customTo, funnelName, selectedFunnelId])
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
       const params = buildParams()
-      const [vslRes, funnelRes] = await Promise.all([
+      const [vslRes, funnelRes, branchRes] = await Promise.all([
         fetch(`/api/metrics/vsl?${params}`),
         fetch(`/api/metrics/funnel?${params}`),
+        fetch(`/api/metrics/funnel-branches?${params}`),
       ])
       if (vslRes.ok)    setVslData(await vslRes.json() as VslMetricsResponse)
       if (funnelRes.ok) setFunnelData(await funnelRes.json() as FunnelMetricsResponse)
+      if (branchRes.ok) {
+        const bd = await branchRes.json() as FunnelBranchesResponse
+        setBranchData(bd)
+        // Initialise selectedFunnelId from first funnel if not yet set
+        if (!selectedFunnelId && bd.funnel_id) {
+          setSelectedFunnelId(bd.funnel_id)
+        }
+      }
     } finally {
       setLoading(false)
     }
-  }, [buildParams])
+  }, [buildParams, selectedFunnelId])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
   // ── Derived values ──────────────────────────────────────────────────────
 
-  const crm        = vslData?.current
-  const prev       = vslData?.previous
-  const steps       = funnelData?.steps ?? []
-  const pageNames   = funnelData?.page_names ?? []
-  const dailyViews  = funnelData?.daily_views ?? []
+  const crm       = vslData?.current
+  const prev      = vslData?.previous
+  const pageNames = funnelData?.page_names ?? []
+  const dailyViews = funnelData?.daily_views ?? []
 
   const totalVisitors     = funnelData?.total_visitors ?? 0
   const prevTotalVisitors = funnelData?.prev_total_visitors ?? 0
 
-  // KPI deltas
-  const visitorsDelta    = pctDelta(totalVisitors, prevTotalVisitors)
-  const bookedDelta      = pctDelta(crm?.booked ?? 0, prev?.booked ?? 0)
-  const showRateDelta    = prev && crm
-    ? pctDelta(crm.show_rate, prev.show_rate)
-    : null
-  const closeRateDelta   = prev && crm
-    ? pctDelta(crm.close_rate, prev.close_rate)
-    : null
+  const visitorsDelta  = pctDelta(totalVisitors, prevTotalVisitors)
+  const bookedDelta    = pctDelta(crm?.booked ?? 0, prev?.booked ?? 0)
+  const showRateDelta  = prev && crm ? pctDelta(crm.show_rate, prev.show_rate) : null
+  const closeRateDelta = prev && crm ? pctDelta(crm.close_rate, prev.close_rate) : null
 
-  // Apply → Book conversion
-  const applyBook        = totalVisitors > 0 && crm
-    ? (crm.booked / totalVisitors) * 100
-    : 0
-  const prevApplyBook    = prevTotalVisitors > 0 && prev
-    ? (prev.booked / prevTotalVisitors) * 100
-    : 0
-  const applyBookDelta   = pctDelta(applyBook, prevApplyBook)
-
-  // CRM step definitions
-  const lastPageUnique = steps.length > 0 ? steps[steps.length - 1].unique_views : 0
-  const pageToBookedPct =
-    lastPageUnique > 0 && crm && crm.booked > 0
-      ? Math.round((crm.booked / lastPageUnique) * 1000) / 10
-      : null
+  const applyBook      = totalVisitors > 0 && crm ? (crm.booked / totalVisitors) * 100 : 0
+  const prevApplyBook  = prevTotalVisitors > 0 && prev ? (prev.booked / prevTotalVisitors) * 100 : 0
+  const applyBookDelta = pctDelta(applyBook, prevApplyBook)
 
   const crmSteps = [
     {
@@ -399,7 +469,6 @@ export default function MetricsDashboard() {
     },
   ]
 
-  // Daily booked chart (built from leads array in VSL response)
   const dailyBooked = (() => {
     const leads = vslData?.leads ?? []
     const map: Record<string, number> = {}
@@ -411,24 +480,33 @@ export default function MetricsDashboard() {
       .map(([date, count]) => ({ date, count }))
   })()
 
-  // Device breakdown
-  const deviceBreakdown = funnelData?.overall_device_breakdown ?? { desktop: 0, mobile: 0, tablet: 0 }
-  const deviceTotal = deviceBreakdown.desktop + deviceBreakdown.mobile + deviceBreakdown.tablet
-  const deviceChartData = [
+  const deviceBreakdown  = funnelData?.overall_device_breakdown ?? { desktop: 0, mobile: 0, tablet: 0 }
+  const deviceTotal      = deviceBreakdown.desktop + deviceBreakdown.mobile + deviceBreakdown.tablet
+  const deviceChartData  = [
     { name: 'Desktop', value: deviceBreakdown.desktop },
     { name: 'Mobile',  value: deviceBreakdown.mobile },
     { name: 'Tablet',  value: deviceBreakdown.tablet },
   ]
 
-  // Traffic sources
-  const referrers = funnelData?.overall_referrers ?? []
+  const referrers    = funnelData?.overall_referrers ?? []
   const referrerTotal = referrers.reduce((s, r) => s + r.count, 0)
 
-  // Countries
-  const countries = funnelData?.country_breakdown ?? []
+  const countries    = funnelData?.country_breakdown ?? []
   const countryTotal = countries.reduce((s, c) => s + c.count, 0)
 
   const hasData = !loading && (totalVisitors > 0 || (crm?.booked ?? 0) > 0)
+
+  // Branch funnel derived
+  const configFunnels  = branchData?.all_funnels ?? []
+  const hasFunnelConfig = configFunnels.length > 0
+
+  // Summary table rows
+  const branchSummary = (branchData?.branches ?? []).map(b => {
+    const entered    = b.steps[0]?.visits ?? 0
+    const converted  = b.steps[b.steps.length - 1]?.visits ?? 0
+    const rate       = entered > 0 ? (converted / entered) * 100 : 0
+    return { label: b.label, color: b.color, entered, converted, rate }
+  })
 
   // ── Render ──────────────────────────────────────────────────────────────
 
@@ -471,16 +549,21 @@ export default function MetricsDashboard() {
           </div>
         )}
 
-        {/* Funnel selector — only shown when 2+ named funnels exist */}
-        {funnelNames.length > 1 && (
+        {/* Funnel selector — shown when config funnels exist */}
+        {hasFunnelConfig && (
           <select
-            value={funnelName}
-            onChange={e => setFunnelName(e.target.value)}
+            value={selectedFunnelId}
+            onChange={e => {
+              const id     = e.target.value
+              const found  = configFunnels.find(f => f.id === id)
+              setSelectedFunnelId(id)
+              setFunnelName(found?.name ?? '')
+            }}
             className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs text-white/70 focus:outline-none focus:border-white/20"
           >
             <option value="">All funnels</option>
-            {funnelNames.map(n => (
-              <option key={n} value={n}>{n}</option>
+            {configFunnels.map(f => (
+              <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
         )}
@@ -577,68 +660,117 @@ export default function MetricsDashboard() {
         </div>
       )}
 
-      {/* ── Section 2: Visual Funnel ──────────────────────────────────────── */}
+      {/* ── Section 2: Branch Funnel ──────────────────────────────────────── */}
       <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
-        <SectionHeader icon={<TrendingUp size={13} />} label="Conversion Funnel" />
+        <SectionHeader icon={<GitBranch size={13} />} label="Conversion Branches" />
 
-        {(() => {
-          // Build the full ordered list of rows for the vertical funnel
-          const pageStepColors = ['#2563eb', '#3b6fd4', '#4e7abf', '#5f83aa', '#6e8c96']
-          const maxCount = steps.length > 0 ? steps[0].unique_views : (crm?.booked ?? 0)
-
-          if (loading) {
-            return (
-              <div className="space-y-2">
-                {Array.from({ length: 5 }).map((_, i) => <SkeletonFunnelRow key={i} />)}
-              </div>
-            )
-          }
-
-          if (steps.length === 0 && (crm?.booked ?? 0) === 0 && (crm?.showed ?? 0) === 0 && (crm?.closed_won ?? 0) === 0) {
-            return (
-              <div className="flex h-32 items-center justify-center text-white/20 text-sm">
-                No funnel data for this period
-              </div>
-            )
-          }
-
-          return (
-            <div className="space-y-0">
-              {steps.map((step, i) => (
-                <div key={step.page_name}>
-                  <FunnelRow
-                    title={capitalize(step.page_name)}
-                    count={step.unique_views}
-                    maxCount={maxCount}
-                    barColor={pageStepColors[Math.min(i, pageStepColors.length - 1)]}
-                    subValue={`${fmtNum(step.all_views)} total views`}
-                    icon={<Eye size={13} />}
-                  />
-                  <FunnelConnector
-                    pct={i < steps.length - 1 ? step.conversion_to_next : pageToBookedPct}
-                  />
-                </div>
-              ))}
-
-              {crmSteps.map((step, i) => (
-                <div key={step.key}>
-                  <FunnelRow
-                    title={step.title}
-                    count={step.count}
-                    maxCount={maxCount}
-                    barColor={step.accentColor}
-                    subValue={step.subLabel}
-                    icon={step.icon}
-                    isLast={i === crmSteps.length - 1}
-                  />
-                  {i < crmSteps.length - 1 && (
-                    <FunnelConnector pct={step.convNext} />
-                  )}
-                </div>
+        {loading ? (
+          <div className="space-y-4">
+            <div className="h-10 rounded-xl bg-white/[0.03] animate-pulse" />
+            <div className="grid grid-cols-3 gap-4">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-64 rounded-2xl bg-white/[0.02] animate-pulse" />
               ))}
             </div>
-          )
-        })()}
+          </div>
+        ) : !hasFunnelConfig ? (
+          <div className="flex flex-col items-center justify-center py-10 gap-3">
+            <GitBranch className="w-8 h-8 text-white/10" />
+            <p className="text-white/30 text-sm">Set up your funnel in Settings</p>
+            <a
+              href="/dashboard/settings"
+              className="text-[12px] text-[#2563eb] hover:underline"
+            >
+              Go to Settings →
+            </a>
+          </div>
+        ) : (
+          <>
+            {/* Entry bar */}
+            <div
+              className="rounded-xl px-5 py-3 mb-5 flex items-center gap-3"
+              style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              <Eye size={13} className="text-white/30 shrink-0" />
+              <span className="text-[13px] text-white/60">
+                <span className="text-white/80 font-medium">{branchData?.funnel_name}</span>
+                {' — '}Entry:{' '}
+                <span className="font-mono text-[12px] text-white/50">{branchData?.entry_path}</span>
+                {' — '}
+                <span className="font-mono font-bold text-white">{fmtNum(branchData?.entry_visits ?? 0)}</span>
+                {' visits'}
+              </span>
+            </div>
+
+            {/* 3 branch columns */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {(branchData?.branches ?? []).map(branch => (
+                <BranchColumn key={branch.id} branch={branch} />
+              ))}
+            </div>
+
+            {/* Summary table */}
+            {branchSummary.some(r => r.entered > 0) && (
+              <div className="mt-5">
+                <div
+                  className="rounded-xl overflow-hidden"
+                  style={{ border: '1px solid rgba(255,255,255,0.06)' }}
+                >
+                  <table className="w-full">
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        {['Branch', 'Entered', 'Converted', 'Rate'].map(h => (
+                          <th
+                            key={h}
+                            className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-white/25"
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {branchSummary.map((row, i) => (
+                        <tr
+                          key={row.label}
+                          style={{
+                            borderBottom: i < branchSummary.length - 1
+                              ? '1px solid rgba(255,255,255,0.04)'
+                              : undefined,
+                          }}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="w-2 h-2 rounded-full shrink-0"
+                                style={{ backgroundColor: row.color }}
+                              />
+                              <span className="text-[13px] text-white/70">{row.label}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-[13px] text-white/60 tabular-nums">
+                            {fmtNum(row.entered)}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-[13px] text-white/60 tabular-nums">
+                            {fmtNum(row.converted)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className="font-mono text-[13px] font-semibold tabular-nums"
+                              style={{ color: row.color }}
+                            >
+                              {row.entered > 0 ? fmtPct(row.rate) : '—'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* ── Section 3: Daily Trends ───────────────────────────────────────── */}
@@ -862,7 +994,7 @@ export default function MetricsDashboard() {
 
               <div className="flex justify-center gap-5 mt-2">
                 {deviceChartData.map((d, i) => {
-                  const pct = deviceTotal > 0 ? ((d.value / deviceTotal) * 100).toFixed(1) : '0.0'
+                  const pct  = deviceTotal > 0 ? ((d.value / deviceTotal) * 100).toFixed(1) : '0.0'
                   const Icon = DEVICE_ICONS[i]
                   return (
                     <div key={d.name} className="flex flex-col items-center gap-1">
