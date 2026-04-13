@@ -214,13 +214,14 @@ export default function FunnelSetup() {
   useEffect(() => {
     fetch('/api/creator/funnel-config')
       .then(r => r.json())
-      .then((d: { funnel_config?: FunnelConfig }) => {
+      .then((d: { funnel_config?: FunnelConfig; error?: string }) => {
+        if (d.error) { setError(d.error); return }
         const cfg = d.funnel_config
         if (cfg && typeof cfg === 'object' && Array.isArray((cfg as FunnelConfig).funnels)) {
           setConfig(cfg as FunnelConfig)
         }
       })
-      .catch(() => {})
+      .catch(() => setError('Failed to load funnel config'))
       .finally(() => setLoading(false))
   }, [])
 

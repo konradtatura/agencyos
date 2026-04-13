@@ -410,18 +410,11 @@ export default function MetricsDashboard() {
       ])
       if (vslRes.ok)    setVslData(await vslRes.json() as VslMetricsResponse)
       if (funnelRes.ok) setFunnelData(await funnelRes.json() as FunnelMetricsResponse)
-      if (branchRes.ok) {
-        const bd = await branchRes.json() as FunnelBranchesResponse
-        setBranchData(bd)
-        // Initialise selectedFunnelId from first funnel if not yet set
-        if (!selectedFunnelId && bd.funnel_id) {
-          setSelectedFunnelId(bd.funnel_id)
-        }
-      }
+      if (branchRes.ok) setBranchData(await branchRes.json() as FunnelBranchesResponse)
     } finally {
       setLoading(false)
     }
-  }, [buildParams, selectedFunnelId])
+  }, [buildParams])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -552,7 +545,7 @@ export default function MetricsDashboard() {
         {/* Funnel selector — shown when config funnels exist */}
         {hasFunnelConfig && (
           <select
-            value={selectedFunnelId}
+            value={selectedFunnelId || branchData?.funnel_id || ''}
             onChange={e => {
               const id     = e.target.value
               const found  = configFunnels.find(f => f.id === id)
