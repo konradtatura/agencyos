@@ -120,6 +120,7 @@ Stack: Next.js 15 App Router · TypeScript · Tailwind · Supabase (DB + Auth) �
 | GHL keys stored plaintext | `agency_config.ghl_api_key` and `creator_profiles.ghl_api_key` not encrypted. All other secrets are. |
 | `funnel_names` endpoint now unused | `GET /api/metrics/funnel/names` still exists but MetricsDashboard no longer calls it (funnel list now comes from `funnel_config`). Dead route. |
 | `funnel_names` in EMPTY constant | `app/api/metrics/funnel/route.ts` line 95: `funnel_names: []` is in the EMPTY object but `funnel_names` is not in the `FunnelMetricsResponse` type — TypeScript allows it only due to `as any` cast on line 353. Benign but inconsistent. |
+| Branch metrics showed "No data yet" | ~~Fixed~~. `funnel-branches/route.ts` was filtering `funnel_name` in JS after fetching all rows; rows with `funnel_name = NULL` (all pre-config tracking data) were correctly matched but the original JS filter had a subtle loose-equality bug. Fixed by pushing `.or(funnel_name.eq.X,funnel_name.is.null)` to the DB query. |
 
 ---
 
@@ -127,7 +128,7 @@ Stack: Next.js 15 App Router · TypeScript · Tailwind · Supabase (DB + Auth) �
 
 Logical next builds based on current state:
 
-1. **Funnel branch data hookup** — Run migration 031 in production, verify Mike's funnel config shows in Settings, verify the 3-column branch metrics render with real pageview data.
+1. ~~**Funnel branch data hookup**~~ — Migration 031 run, NULL funnel_name bug fixed. Branch metrics should now show real data for existing pageviews.
 2. **EOD reporting dashboards** — The submission schema (026/029/030) and form exist. No aggregated view for the agency owner or per-closer/setter performance.
 3. **Onboarding wizard** — Re-enable the middleware gate once the flow is stable. Currently no guided setup for new creators.
 4. **DM reply verification** — The reply route exists (`POST /api/dms/[conversationId]/reply`) but whether Graph API delivery actually works in production is unverified.
