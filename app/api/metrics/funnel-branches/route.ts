@@ -130,19 +130,17 @@ export async function GET(req: NextRequest) {
   ]
   const uniquePaths = Array.from(new Set(allPaths))
 
-  // Fetch all pageview rows for those paths
+  // Fetch pageview rows matching this funnel name OR untagged rows (funnel_name IS NULL)
   const { data: rows } = await admin
     .from('funnel_pageviews')
-    .select('page_path, session_id, funnel_name')
+    .select('page_path, session_id')
     .eq('creator_id', creatorId)
     .in('page_path', uniquePaths)
     .gte('visited_at', fromDate.toISOString())
     .lte('visited_at', toDate.toISOString())
+    .or(`funnel_name.eq.${funnel.name},funnel_name.is.null`)
 
-  // Filter: funnel_name matches OR funnel_name is null/absent
-  const filtered = (rows ?? []).filter((r: { funnel_name: string | null }) =>
-    r.funnel_name === funnel.name || r.funnel_name == null
-  )
+  const filtered = rows ?? []
 
   // Build path → unique session count map
   const pathSessions = new Map<string, Set<string>>()
