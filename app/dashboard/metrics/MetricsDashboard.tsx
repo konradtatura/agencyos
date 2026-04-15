@@ -1,1074 +1,880 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
-  ResponsiveContainer,
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
-import {
-  Users, Phone, Eye, DollarSign, TrendingUp, TrendingDown,
-  Loader2, Globe, Monitor, Smartphone, Tablet, Minus, X,
-  GitBranch,
-} from 'lucide-react'
-import type { VslMetricsResponse } from '@/app/api/metrics/vsl/route'
-import type { FunnelMetricsResponse } from '@/app/api/metrics/funnel/route'
-import type { FunnelBranchesResponse, BranchResult } from '@/app/api/metrics/funnel-branches/route'
+import { AlertTriangle, X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
+import type { CrmMetricsResponse, CloserRow, SetterRow } from '@/app/api/metrics/crm/route'
 
-// ── Constants ──────────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────────
 
-type Range = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
-
-const RANGES: { value: Range; label: string }[] = [
-  { value: 'today', label: 'Today' },
-  { value: '7d', label: '7 days' },
-  { value: '30d', label: '30 days' },
-  { value: 'month', label: 'This month' },
-  { value: 'all', label: 'All time' },
-  { value: 'custom', label: 'Custom' },
+const RANGES = [
+  { value: 'today',  label: 'Today'      },
+  { value: '7d',     label: '7 Days'     },
+  { value: '30d',    label: '30 Days'    },
+  { value: 'month',  label: 'This Month' },
+  { value: 'all',    label: 'All Time'   },
 ]
 
-const DEVICE_COLORS = ['#2563eb', '#7c3aed', '#10b981']
-const DEVICE_LABELS = ['Desktop', 'Mobile', 'Tablet']
-const DEVICE_ICONS  = [Monitor, Smartphone, Tablet]
+const METRIC_DEFS = [
+  { key: 'dm_to_qualified',     label: 'DM → Qualified',   benchmark: null },
+  { key: 'book_rate',           label: 'Book Rate',         benchmark: 15   },
+  { key: 'show_rate',           label: 'Show Rate',         benchmark: 60   },
+  { key: 'close_rate',          label: 'Close Rate',        benchmark: 20   },
+  { key: 'offer_rate',          label: 'Offer Rate',        benchmark: 80   },
+  { key: 'end_to_end',          label: 'End-to-End',        benchmark: null },
+  { key: 'no_show_rate',        label: 'No Show Rate',      benchmark: null },
+  { key: 'cancel_rate',         label: 'Cancel Rate',       benchmark: null },
+  { key: 'dq_rate',             label: 'DQ Rate',           benchmark: null },
+  { key: 'downgrade_conversion',label: 'Downgrade Conv.',   benchmark: null },
+] as const
 
-const TOOLTIP_STYLE = {
-  background: '#0d1117',
-  border: '1px solid rgba(255,255,255,0.08)',
+type MetricKey = typeof METRIC_DEFS[number]['key']
+
+const LINE_COLORS: Record<string, string> = {
+  show_rate:   '#2563eb',
+  close_rate:  '#10b981',
+  book_rate:   '#f59e0b',
+  offer_rate:  '#8b5cf6',
+}
+
+const CARD = {
+  backgroundColor: '#111827',
+  border: '1px solid rgba(255,255,255,0.06)',
   borderRadius: 12,
-  fontSize: 12,
-  color: 'rgba(255,255,255,0.7)',
-  boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+} as const
+
+// ── Formatters ─────────────────────────────────────────────────────────────────
+
+function fmtPct(n: number | null | undefined) {
+  if (n == null) return 'N/A'
+  return `${n.toFixed(1)}%`
 }
 
-// Small lookup for common country names from ISO-2 codes
-const COUNTRY_NAMES: Record<string, string> = {
-  US: 'United States', GB: 'United Kingdom', CA: 'Canada', AU: 'Australia',
-  DE: 'Germany', FR: 'France', IN: 'India', BR: 'Brazil', MX: 'Mexico',
-  PH: 'Philippines', NG: 'Nigeria', ZA: 'South Africa', ID: 'Indonesia',
-  JP: 'Japan', KR: 'South Korea', SG: 'Singapore', AE: 'United Arab Emirates',
-  NL: 'Netherlands', ES: 'Spain', IT: 'Italy', PK: 'Pakistan', BD: 'Bangladesh',
-  MY: 'Malaysia', TH: 'Thailand', VN: 'Vietnam', GH: 'Ghana', KE: 'Kenya',
-  EG: 'Egypt', SA: 'Saudi Arabia', TR: 'Turkey', AR: 'Argentina', CO: 'Colombia',
-  NZ: 'New Zealand', IE: 'Ireland', SE: 'Sweden', NO: 'Norway', DK: 'Denmark',
-  FI: 'Finland', PT: 'Portugal', CH: 'Switzerland', AT: 'Austria', BE: 'Belgium',
-  PL: 'Poland', RU: 'Russia', UA: 'Ukraine', CL: 'Chile', PE: 'Peru',
-  HK: 'Hong Kong', TW: 'Taiwan', IL: 'Israel', QA: 'Qatar', KW: 'Kuwait',
+function fmtUSD(n: number) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function fmtNum(n: number) { return n.toLocaleString() }
-function fmtPct(n: number) { return `${n.toFixed(1)}%` }
-function fmt$(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
-  return `$${n.toFixed(0)}`
-}
-function capitalize(s: string) {
-  return s.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-}
-function countryFlag(code: string): string {
-  if (!code || code.length !== 2) return '🌍'
-  return Array.from(code.toUpperCase())
-    .map(c => String.fromCodePoint(c.charCodeAt(0) + 127397))
-    .join('')
-}
-function countryName(code: string): string {
-  return COUNTRY_NAMES[code.toUpperCase()] ?? code.toUpperCase()
-}
-function fmtDate(d: string) {
-  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-function pctDelta(current: number, prev: number): number | null {
-  if (prev === 0) return null
-  return ((current - prev) / prev) * 100
+function fmtNum(n: number) {
+  return n.toLocaleString()
 }
 
-// ── Skeleton components ────────────────────────────────────────────────────
+// ── Status color helper ────────────────────────────────────────────────────────
 
-function SkeletonKpi() {
+function rateStatus(value: number, benchmark: number | null, inverse = false): 'green' | 'amber' | 'red' | 'neutral' {
+  if (benchmark == null) return 'neutral'
+  if (inverse) {
+    // lower is better (no_show_rate, cancel_rate, dq_rate)
+    const pctAbove = ((value - benchmark) / benchmark) * 100
+    if (pctAbove >= 20) return 'red'
+    if (pctAbove >= 10) return 'amber'
+    return 'green'
+  }
+  const pctBelow = ((benchmark - value) / benchmark) * 100
+  if (pctBelow >= 20) return 'red'
+  if (pctBelow >= 5)  return 'amber'
+  return 'green'
+}
+
+const STATUS_BORDER: Record<string, string> = {
+  green:   '1px solid rgba(16,185,129,0.3)',
+  amber:   '1px solid rgba(245,158,11,0.3)',
+  red:     '1px solid rgba(239,68,68,0.3)',
+  neutral: '1px solid rgba(255,255,255,0.06)',
+}
+
+const STATUS_BAR_COLOR: Record<string, string> = {
+  green:   '#10b981',
+  amber:   '#f59e0b',
+  red:     '#ef4444',
+  neutral: '#2563eb',
+}
+
+// ── Sort helper ────────────────────────────────────────────────────────────────
+
+type SortDir = 'asc' | 'desc' | null
+
+function useSortableTable<T>(rows: T[]) {
+  const [sortKey, setSortKey] = useState<keyof T | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>(null)
+
+  function handleSort(key: keyof T) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : d === 'desc' ? null : 'asc')
+      if (sortDir === 'desc') setSortKey(null)
+    } else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
+  }
+
+  const sorted = useMemo(() => {
+    if (!sortKey || !sortDir) return rows
+    return [...rows].sort((a, b) => {
+      const av = a[sortKey]
+      const bv = b[sortKey]
+      if (typeof av === 'number' && typeof bv === 'number') {
+        return sortDir === 'asc' ? av - bv : bv - av
+      }
+      return sortDir === 'asc'
+        ? String(av).localeCompare(String(bv))
+        : String(bv).localeCompare(String(av))
+    })
+  }, [rows, sortKey, sortDir])
+
+  return { sorted, sortKey, sortDir, handleSort }
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active || dir === null) return <ChevronsUpDown className="h-3 w-3 text-[#4b5563]" />
+  if (dir === 'asc')  return <ChevronUp   className="h-3 w-3 text-[#9ca3af]" />
+  return <ChevronDown className="h-3 w-3 text-[#9ca3af]" />
+}
+
+function Th({
+  label, col, sortKey, sortDir, onSort,
+}: {
+  label: string; col: string
+  sortKey: string | null; sortDir: SortDir
+  onSort: (k: string) => void
+}) {
   return (
-    <div className="rounded-2xl border border-white/[0.06] bg-[#0d1117] p-5 animate-pulse">
-      <div className="flex justify-between items-start mb-4">
-        <div className="h-2.5 w-20 rounded bg-white/[0.06]" />
-        <div className="w-7 h-7 rounded-lg bg-white/[0.04]" />
-      </div>
-      <div className="h-8 w-28 rounded bg-white/[0.06] mb-3" />
-      <div className="h-2.5 w-16 rounded bg-white/[0.04]" />
-    </div>
-  )
-}
-
-function SkeletonChart({ height = 180 }: { height?: number }) {
-  return <div className="rounded-xl bg-white/[0.02] animate-pulse" style={{ height }} />
-}
-
-// ── KPI Card ───────────────────────────────────────────────────────────────
-
-interface KpiCardProps {
-  label: string
-  value: string
-  delta: number | null
-  icon: React.ReactNode
-  accent?: string
-  noTrend?: boolean
-}
-
-function KpiCard({ label, value, delta, icon, accent = '#2563eb', noTrend }: KpiCardProps) {
-  const isUp   = delta !== null && delta >= 0
-  const isDown = delta !== null && delta < 0
-
-  return (
-    <div className="rounded-2xl border border-white/[0.06] bg-[#0d1117] p-5 flex flex-col min-w-0">
-      <div className="flex items-start justify-between mb-3">
-        <span className="text-[10px] font-medium uppercase tracking-widest text-white/40 leading-tight pr-2">
-          {label}
-        </span>
-        <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: `${accent}18`, color: accent }}
-        >
-          {icon}
-        </div>
-      </div>
-
-      <div className="font-mono text-[28px] font-bold text-white tabular-nums leading-none mb-2.5">
-        {value}
-      </div>
-
-      {noTrend ? (
-        <div className="text-[10px] text-white/20 flex items-center gap-1">
-          <Minus size={10} />
-          no comparison
-        </div>
-      ) : delta === null ? (
-        <div className="text-[10px] text-white/20">no prev data</div>
-      ) : (
-        <div className="flex items-center gap-1.5">
-          {isUp
-            ? <TrendingUp size={11} className="text-[#10b981] shrink-0" />
-            : isDown
-            ? <TrendingDown size={11} className="text-[#f87171] shrink-0" />
-            : <Minus size={11} className="text-white/30 shrink-0" />
-          }
-          <span
-            className="text-[11px] font-semibold tabular-nums"
-            style={{ color: isUp ? '#10b981' : isDown ? '#f87171' : 'rgba(255,255,255,0.3)' }}
-          >
-            {isUp ? '+' : ''}{delta.toFixed(1)}%
-          </span>
-          <span className="text-[10px] text-white/20">vs prev period</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Vertical Funnel (CRM) ──────────────────────────────────────────────────
-
-function truncate(s: string, max = 30): string {
-  if (s.length <= max) return s
-  const cut = s.slice(0, max)
-  const lastSpace = cut.lastIndexOf(' ')
-  return (lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut) + '…'
-}
-
-interface FunnelRowProps {
-  title:      string
-  count:      number
-  maxCount:   number
-  barColor:   string
-  subValue?:  string
-  icon:       React.ReactNode
-  isLast?:    boolean
-}
-
-function FunnelRow({ title, count, maxCount, barColor, subValue, icon, isLast }: FunnelRowProps) {
-  const pct          = maxCount > 0 ? Math.max(4, (count / maxCount) * 100) : 4
-  const displayTitle = truncate(title)
-  const needsTooltip = title.length > 30
-
-  return (
-    <div className="rounded-xl border border-white/[0.06] bg-[#0d1117] px-5 py-4">
-      <div className="flex items-center gap-4">
-        <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-          style={{ background: `${barColor}18`, color: barColor }}
-        >
-          {icon}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="mb-2 flex items-baseline gap-3">
-            <span
-              className="text-[13px] font-medium text-white/80"
-              title={needsTooltip ? title : undefined}
-            >
-              {displayTitle}
-            </span>
-            {subValue && (
-              <span className="text-[11px] text-white/30">{subValue}</span>
-            )}
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.04]">
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{ width: `${pct}%`, backgroundColor: barColor }}
-            />
-          </div>
-        </div>
-
-        <div className="shrink-0 text-right">
-          <span
-            className="font-mono text-[22px] font-bold tabular-nums leading-none"
-            style={{ color: isLast ? barColor : '#f9fafb' }}
-          >
-            {count.toLocaleString()}
-          </span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function FunnelConnector({ pct }: { pct: number | null }) {
-  const color =
-    pct === null  ? 'rgba(255,255,255,0.12)'
-    : pct >= 50   ? '#10b981'
-    : pct >= 20   ? '#f59e0b'
-    :               '#f87171'
-
-  return (
-    <div className="flex items-center gap-3 py-0.5 pl-[52px]">
-      <div className="flex w-8 flex-col items-center">
-        <div className="h-5 w-px" style={{ backgroundColor: color, opacity: 0.4 }} />
-        <svg width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden>
-          <path d="M6 0 L6 4 M3 2 L6 5 L9 2" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
-      {pct !== null && (
-        <span
-          className="text-[11px] font-bold tabular-nums font-mono"
-          style={{ color }}
-        >
-          {pct.toFixed(1)}% →
-        </span>
-      )}
-    </div>
-  )
-}
-
-// ── Section Header ─────────────────────────────────────────────────────────
-
-function SectionHeader({ icon, label }: { icon: React.ReactNode; label: string }) {
-  return (
-    <div className="flex items-center gap-2 mb-5">
-      <div className="text-white/35">{icon}</div>
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-white/35">
+    <th
+      className="cursor-pointer select-none whitespace-nowrap px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7280] hover:text-[#9ca3af]"
+      onClick={() => onSort(col)}
+    >
+      <span className="flex items-center gap-1">
         {label}
+        <SortIcon active={sortKey === col} dir={sortKey === col ? sortDir : null} />
       </span>
+    </th>
+  )
+}
+
+// ── Micro sparkline ────────────────────────────────────────────────────────────
+
+function MiniSparkline({ data, color }: { data: number[]; color: string }) {
+  if (!data.length) return <span className="text-[#4b5563] text-[11px]">—</span>
+  const max = Math.max(...data, 1)
+  const h = 24
+  const w = 6
+  const gap = 2
+  const total = data.length * (w + gap) - gap
+  return (
+    <svg width={total} height={h} className="overflow-visible">
+      {data.map((v, i) => {
+        const barH = Math.max(2, (v / max) * h)
+        return (
+          <rect
+            key={i}
+            x={i * (w + gap)}
+            y={h - barH}
+            width={w}
+            height={barH}
+            rx={1}
+            fill={color}
+            opacity={0.8}
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
+// ── Custom tooltip ─────────────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ChartTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '8px 12px', fontSize: 12 }}>
+      <p className="mb-1 text-[11px] text-[#9ca3af]">{label}</p>
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {payload.map((p: any) => (
+        <p key={p.dataKey} style={{ color: p.color }} className="font-mono">
+          {p.name}: {typeof p.value === 'number' ? `${p.value.toFixed(1)}%` : p.value}
+        </p>
+      ))}
     </div>
   )
 }
 
-// ── Branch Column ──────────────────────────────────────────────────────────
+// ── Loading skeleton ───────────────────────────────────────────────────────────
 
-function BranchColumn({ branch }: { branch: BranchResult }) {
-  const hasData        = branch.steps.some(s => s.visits > 0)
-  const firstVisits    = branch.steps[0]?.visits ?? 0
-  const lastVisits     = branch.steps[branch.steps.length - 1]?.visits ?? 0
-  const cvr            = firstVisits > 0 ? (lastVisits / firstVisits) * 100 : 0
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-10 w-96 bg-white/[0.06]" />
+      <div className="grid grid-cols-5 gap-4">
+        {Array.from({ length: 10 }).map((_, i) => (
+          <Skeleton key={i} className="h-32 bg-white/[0.06] rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-48 bg-white/[0.06] rounded-xl" />
+      <Skeleton className="h-64 bg-white/[0.06] rounded-xl" />
+    </div>
+  )
+}
+
+// ── Empty state ────────────────────────────────────────────────────────────────
+
+function EmptyState() {
+  return (
+    <div
+      className="flex flex-col items-center justify-center py-24 text-center"
+      style={CARD}
+    >
+      <div className="mb-3 text-[40px]">📊</div>
+      <p className="text-[15px] font-medium text-[#f9fafb]">No leads in CRM yet</p>
+      <p className="mt-1 text-[13px] text-[#6b7280]">
+        Add your first lead to start tracking conversion metrics.
+      </p>
+    </div>
+  )
+}
+
+// ── SECTION: Alert Banner ──────────────────────────────────────────────────────
+
+function AlertBanner({ alerts }: { alerts: CrmMetricsResponse['alerts'] }) {
+  const [dismissed, setDismissed] = useState<string[]>([])
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('crm_dismissed_alerts') ?? '[]')
+      setDismissed(stored)
+    } catch { /* ignore */ }
+  }, [])
+
+  function dismiss(key: string) {
+    const next = [...dismissed, key]
+    setDismissed(next)
+    try { localStorage.setItem('crm_dismissed_alerts', JSON.stringify(next)) } catch { /* ignore */ }
+  }
+
+  const visible = alerts.filter(a => !dismissed.includes(`${a.metric}-${a.current_value}`))
+  if (!visible.length) return null
 
   return (
     <div
-      className="rounded-2xl flex flex-col"
-      style={{
-        backgroundColor: '#0d1117',
-        border: `1px solid ${branch.color}35`,
-      }}
+      className="rounded-xl p-4 space-y-2"
+      style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}
     >
-      {/* Header */}
-      <div
-        className="px-5 py-3 rounded-t-2xl flex items-center gap-2"
-        style={{ borderBottom: `1px solid ${branch.color}20` }}
-      >
-        <span
-          className="w-2.5 h-2.5 rounded-full shrink-0"
-          style={{ backgroundColor: branch.color }}
-        />
-        <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: branch.color }}>
-          {branch.label}
-        </span>
-      </div>
-
-      {/* Steps */}
-      <div className="flex-1 p-4 space-y-0">
-        {!hasData ? (
-          <div className="h-full min-h-[120px] flex items-center justify-center">
-            <span className="text-[12px] text-white/20">No data yet</span>
+      {visible.map(a => {
+        const key = `${a.metric}-${a.current_value}`
+        return (
+          <div key={key} className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2 text-[13px] text-[#fca5a5]">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#ef4444]" />
+              <span>
+                <span className="font-semibold">{a.metric} is {fmtPct(a.current_value)}</span>
+                {' — '}{a.delta_points} points below your 30-day average
+                {a.supporting_fact ? `. ${a.supporting_fact}.` : '.'}
+              </span>
+            </div>
+            <button
+              onClick={() => dismiss(key)}
+              className="shrink-0 rounded p-0.5 hover:bg-white/10 text-[#9ca3af] hover:text-white transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
-        ) : (
-          branch.steps.map((step, i) => {
-            const prev     = i > 0 ? branch.steps[i - 1].visits : null
-            const dropPct  = prev !== null && prev > 0
-              ? ((prev - step.visits) / prev) * 100
-              : null
+        )
+      })}
+    </div>
+  )
+}
 
-            return (
-              <div key={step.path}>
-                {i > 0 && (
-                  <div className="flex items-center gap-2 py-1.5 pl-1">
-                    <div className="flex flex-col items-center gap-0.5">
-                      <div className="w-px h-3 bg-white/10" />
-                      <svg width="10" height="6" viewBox="0 0 10 6" fill="none" aria-hidden>
-                        <path d="M5 0 L5 3 M2.5 1.5 L5 4 L7.5 1.5" stroke="rgba(255,255,255,0.15)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                    {dropPct !== null && (
-                      <span
-                        className="text-[10px] font-mono tabular-nums"
-                        style={{
-                          color: dropPct >= 70 ? '#f87171' : dropPct >= 40 ? '#f59e0b' : '#6b7280',
-                        }}
-                      >
-                        ↓ {dropPct.toFixed(0)}% drop
-                      </span>
-                    )}
-                  </div>
-                )}
+// ── SECTION: Funnel Visualization ─────────────────────────────────────────────
 
-                <div
-                  className="rounded-xl px-4 py-3"
-                  style={{
-                    backgroundColor: '#111827',
-                    border: '1px solid rgba(255,255,255,0.05)',
-                  }}
-                >
-                  <div className="text-[11px] text-white/40 mb-1 truncate" title={step.label}>
-                    {step.label}
-                  </div>
-                  <div className="font-mono text-[22px] font-bold text-white tabular-nums leading-none">
-                    {fmtNum(step.visits)}
-                  </div>
-                  <div className="text-[10px] text-white/25 mt-0.5">visits</div>
-                </div>
+function FunnelViz({ funnel, rates }: { funnel: CrmMetricsResponse['funnel']; rates: CrmMetricsResponse['rates'] }) {
+  const benchmarks = { qualified: null, call_booked: 15, showed: 60, closed_won: 20 }
+  const stages = [
+    { key: 'total_leads_entered', label: 'DM\'d',        count: funnel.total_leads_entered, convLabel: null },
+    { key: 'qualified',           label: 'Qualified',    count: funnel.qualified,           convLabel: `${fmtPct(rates.dm_to_qualified)} qualified` },
+    { key: 'call_booked',         label: 'Call Booked',  count: funnel.call_booked,         convLabel: `${fmtPct(rates.book_rate)} booked` },
+    { key: 'showed',              label: 'Showed',       count: funnel.showed,              convLabel: `${fmtPct(rates.show_rate)} showed` },
+    { key: 'closed_won',          label: 'Closed Won',   count: funnel.closed_won,          convLabel: `${fmtPct(rates.close_rate)} closed` },
+  ] as const
+
+  const max = funnel.total_leads_entered || 1
+
+  return (
+    <div className="rounded-xl p-5 space-y-1" style={CARD}>
+      <p className="mb-4 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Pipeline Funnel</p>
+      {stages.map((stage, idx) => {
+        const pctOfFirst = max > 0 ? Math.round((stage.count / max) * 100 * 10) / 10 : 0
+        // Determine bar color: compare stage-specific rate vs benchmark
+        const bm = benchmarks[stage.key as keyof typeof benchmarks]
+        let barColor = '#2563eb'
+        if (stage.key === 'call_booked') barColor = STATUS_BAR_COLOR[rateStatus(rates.book_rate, 15)]
+        else if (stage.key === 'showed') barColor = STATUS_BAR_COLOR[rateStatus(rates.show_rate, 60)]
+        else if (stage.key === 'closed_won') barColor = STATUS_BAR_COLOR[rateStatus(rates.close_rate, 20)]
+
+        return (
+          <div key={stage.key}>
+            {/* Connector arrow */}
+            {idx > 0 && stage.convLabel && (
+              <div className="flex items-center gap-2 py-1 pl-1">
+                <span className="text-[11px] text-[#4b5563]">↓</span>
+                <span className="text-[11px] text-[#4b5563]">{stage.convLabel}</span>
               </div>
-            )
-          })
+            )}
+            {/* Stage row */}
+            <div className="flex items-center gap-3">
+              <div className="w-24 shrink-0 text-[12.5px] text-[#9ca3af]">{stage.label}</div>
+              <div className="flex-1 relative h-5 rounded overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
+                <div
+                  className="absolute inset-y-0 left-0 rounded transition-all duration-500"
+                  style={{
+                    width: `${pctOfFirst}%`,
+                    backgroundColor: barColor,
+                    opacity: 0.85,
+                  }}
+                />
+              </div>
+              <div className="w-16 shrink-0 text-right font-mono text-[12.5px] text-[#f9fafb]">{fmtNum(stage.count)}</div>
+              <div className="w-12 shrink-0 text-right text-[11px] text-[#6b7280]">{pctOfFirst}%</div>
+            </div>
+          </div>
+        )
+      })}
+
+      {/* Downgrade sub-section */}
+      {funnel.disqualified > 0 && (
+        <div
+          className="mt-4 rounded-lg px-4 py-3 text-[12.5px] text-[#9ca3af]"
+          style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <span className="font-medium text-[#f9fafb]">Downgrade Pipeline: </span>
+          {fmtNum(funnel.disqualified)} disqualified → {fmtNum(funnel.downgrade_closed)} closed
+          {' = '}
+          <span className="font-mono text-[#f59e0b]">{fmtPct(rates.downgrade_conversion)}</span>
+          {' downgrade conversion'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── SECTION: Metric Cards ──────────────────────────────────────────────────────
+
+function MetricCard({
+  label, value, prevValue, benchmark, sparkData,
+}: {
+  label: string
+  value: number
+  prevValue: number
+  benchmark: number | null
+  sparkData: number[]
+}) {
+  const delta = Math.round((value - prevValue) * 10) / 10
+  const status = rateStatus(value, benchmark)
+  const isHealthy = status === 'green' || status === 'neutral'
+  const lineColor = isHealthy ? '#2563eb' : '#ef4444'
+
+  return (
+    <div
+      className="rounded-xl p-4 flex flex-col gap-3"
+      style={{ ...CARD, border: STATUS_BORDER[status] }}
+    >
+      <p className="text-[10.5px] font-semibold uppercase tracking-widest text-[#6b7280]">{label}</p>
+      <p className="font-mono text-[24px] font-semibold leading-none text-[#f9fafb]">{fmtPct(value)}</p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          {delta > 0 && <span className="text-[11px] font-medium text-[#10b981]">↑ {delta}pts</span>}
+          {delta < 0 && <span className="text-[11px] font-medium text-[#ef4444]">↓ {Math.abs(delta)}pts</span>}
+          {delta === 0 && <span className="text-[11px] text-[#4b5563]">—</span>}
+          <span className="text-[10px] text-[#4b5563]">WoW</span>
+        </div>
+        {benchmark != null && (
+          <span className="text-[10px] text-[#4b5563]">bm {benchmark}%</span>
         )}
       </div>
+      {/* Sparkline */}
+      {sparkData.length > 0 && (
+        <div className="h-[40px]">
+          <ResponsiveContainer width="100%" height={40}>
+            <LineChart data={sparkData.map((v, i) => ({ i, v }))} margin={{ top: 2, bottom: 2, left: 0, right: 0 }}>
+              <Line
+                type="monotone"
+                dataKey="v"
+                stroke={lineColor}
+                strokeWidth={1.5}
+                dot={false}
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  )
+}
 
-      {/* CVR footer */}
-      <div
-        className="px-5 py-3 rounded-b-2xl"
-        style={{ borderTop: `1px solid ${branch.color}20` }}
-      >
-        <div className="text-[10px] uppercase tracking-widest text-white/25 mb-0.5">CVR</div>
-        <div
-          className="font-mono text-[20px] font-bold tabular-nums"
-          style={{ color: hasData ? branch.color : 'rgba(255,255,255,0.1)' }}
-        >
-          {hasData ? fmtPct(cvr) : '—'}
+// ── SECTION: Setter Table ──────────────────────────────────────────────────────
+
+function SetterTable({ setters, sparklinesByUser }: { setters: SetterRow[]; sparklinesByUser: Record<string, number[]> }) {
+  const { sorted, sortKey, sortDir, handleSort } = useSortableTable(setters)
+  const teamAvgBookRate = setters.length
+    ? setters.reduce((s, r) => s + r.book_rate, 0) / setters.length
+    : 0
+
+  function bookRateColor(rate: number) {
+    if (teamAvgBookRate === 0) return '#9ca3af'
+    const below = ((teamAvgBookRate - rate) / teamAvgBookRate) * 100
+    if (below >= 20) return '#ef4444'
+    if (below >= 10) return '#f59e0b'
+    return '#10b981'
+  }
+
+  if (!setters.length) return (
+    <div className="py-8 text-center text-[13px] text-[#6b7280]">No setter EOD data for this period.</div>
+  )
+
+  // Best setter by total_booked this week
+  const best = [...setters].sort((a, b) => b.total_booked - a.total_booked)[0]
+
+  return (
+    <div>
+      {best && best.total_booked > 0 && (
+        <p className="mb-3 text-[13px] text-[#9ca3af]">
+          🏆 <span className="font-semibold text-[#f9fafb]">{best.name}</span>
+          {' — '}{best.total_booked} calls booked ({fmtPct(best.book_rate)} book rate)
+        </p>
+      )}
+      <div className="overflow-x-auto rounded-xl" style={CARD}>
+        <table className="w-full min-w-[800px] border-collapse text-[12.5px]">
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              {([
+                ['name',              'Name'],
+                ['outbound_sent',     'Outbound'],
+                ['inbound_received',  'Inbound'],
+                ['booking_links_sent','Links Sent'],
+                ['total_booked',      'Booked'],
+                ['book_rate',         'Book %'],
+                ['streak',            'Streak'],
+              ] as [string, string][]).map(([col, label]) => (
+                <Th key={col} label={label} col={col} sortKey={sortKey as string | null} sortDir={sortDir} onSort={handleSort as (k: string) => void} />
+              ))}
+              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7280]">7d Trend</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map(s => (
+              <tr key={s.user_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <td className="px-3 py-2.5 font-medium text-[#f9fafb]">{s.name}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{s.outbound_sent || <span className="text-[#4b5563]">N/A</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{s.inbound_received || <span className="text-[#4b5563]">N/A</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{s.booking_links_sent || <span className="text-[#4b5563]">N/A</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{s.total_booked || <span className="text-[#4b5563]">N/A</span>}</td>
+                <td className="px-3 py-2.5 font-mono" style={{ color: bookRateColor(s.book_rate) }}>
+                  {s.total_booked ? fmtPct(s.book_rate) : <span className="text-[#4b5563]">N/A</span>}
+                </td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">
+                  {s.streak > 0 ? `${s.streak}${s.streak >= 7 ? ' 🔥' : ''}` : <span className="text-[#4b5563]">0</span>}
+                </td>
+                <td className="px-3 py-2.5">
+                  <MiniSparkline data={sparklinesByUser[s.user_id] ?? []} color="#f59e0b" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── SECTION: Closer Table ──────────────────────────────────────────────────────
+
+function CloserTable({ closers }: { closers: CloserRow[] }) {
+  const { sorted, sortKey, sortDir, handleSort } = useSortableTable(closers)
+  const teamAvgClose = closers.length
+    ? closers.reduce((s, r) => s + r.close_rate, 0) / closers.length
+    : 0
+
+  if (!closers.length) return (
+    <div className="py-8 text-center text-[13px] text-[#6b7280]">No closer EOD data.</div>
+  )
+
+  function closeColor(rate: number) {
+    if (!teamAvgClose) return '#9ca3af'
+    const below = ((teamAvgClose - rate) / (teamAvgClose || 1)) * 100
+    if (below >= 30) return '#ef4444'
+    if (below >= 15) return '#f59e0b'
+    return '#10b981'
+  }
+
+  const cols: [keyof CloserRow, string][] = [
+    ['name',              'Name'],
+    ['calls_booked',      'Booked'],
+    ['showed',            'Showed'],
+    ['no_showed',         'No Show'],
+    ['rescheduled',       'Reschedule'],
+    ['calls_taken',       'Taken'],
+    ['closes',            'Closes'],
+    ['deposits',          'Deposits'],
+    ['disqualified_count','DQ'],
+    ['close_rate',        'Close%'],
+    ['show_rate',         'Show%'],
+    ['no_show_rate',      'NoShow%'],
+    ['dq_rate',           'DQ%'],
+    ['cash_collected',    'Cash'],
+    ['revenue_generated', 'Revenue'],
+    ['aov',               'AOV'],
+    ['followup_payments', 'Plans'],
+  ]
+
+  return (
+    <div className="overflow-x-auto rounded-xl" style={CARD}>
+      <table className="w-full min-w-[1200px] border-collapse text-[12.5px]">
+        <thead>
+          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            {cols.map(([col, label]) => (
+              <Th key={col} label={label} col={col as string} sortKey={sortKey as string | null} sortDir={sortDir} onSort={handleSort as (k: string) => void} />
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(c => {
+            const hasData = c.calls_taken > 0
+
+            return (
+              <tr key={c.user_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <td className="px-3 py-2.5 font-medium text-[#f9fafb]">{c.name}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtNum(c.calls_booked) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtNum(c.showed) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#ef4444]">{hasData ? fmtNum(c.no_showed) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtNum(c.rescheduled) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtNum(c.calls_taken) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#10b981]">{hasData ? fmtNum(c.closes) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtUSD(c.deposits) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtNum(c.disqualified_count) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono font-semibold" style={{ color: hasData ? closeColor(c.close_rate) : '#4b5563' }}>
+                  {hasData ? fmtPct(c.close_rate) : '—'}
+                </td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtPct(c.show_rate) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#ef4444]">{hasData ? fmtPct(c.no_show_rate) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtPct(c.dq_rate) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#10b981]">{hasData ? fmtUSD(c.cash_collected) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#60a5fa]">{hasData ? fmtUSD(c.revenue_generated) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtUSD(c.aov) : <span className="text-[#4b5563]">—</span>}</td>
+                <td className="px-3 py-2.5 font-mono text-[#d1d5db]">{hasData ? fmtNum(c.followup_payments) : <span className="text-[#4b5563]">—</span>}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ── SECTION: Trend Charts ──────────────────────────────────────────────────────
+
+const TOGGLEABLE_METRICS: { key: string; label: string; color: string }[] = [
+  { key: 'show_rate',  label: 'Show Rate',  color: LINE_COLORS.show_rate  },
+  { key: 'close_rate', label: 'Close Rate', color: LINE_COLORS.close_rate },
+  { key: 'book_rate',  label: 'Book Rate',  color: LINE_COLORS.book_rate  },
+  { key: 'offer_rate', label: 'Offer Rate', color: LINE_COLORS.offer_rate },
+]
+
+function TrendCharts({
+  sparklines,
+  weeklyTrend,
+  benchmarks,
+}: {
+  sparklines: CrmMetricsResponse['sparklines']
+  weeklyTrend: CrmMetricsResponse['weekly_trend']
+  benchmarks: CrmMetricsResponse['benchmarks']
+}) {
+  const [activeLines, setActiveLines] = useState(['show_rate', 'close_rate', 'book_rate'])
+
+  function toggleLine(key: string) {
+    setActiveLines(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
+  }
+
+  // This week vs last week
+  const thisWeekData = sparklines.slice(-7)
+  const lastWeekData = sparklines.slice(-14, -7)
+
+  const weekCompData = (['show_rate', 'close_rate', 'book_rate', 'offer_rate'] as const).map(k => ({
+    metric: TOGGLEABLE_METRICS.find(m => m.key === k)?.label ?? k,
+    'This Week': thisWeekData.length ? thisWeekData.reduce((s, d) => s + d[k], 0) / thisWeekData.length : 0,
+    'Last Week': lastWeekData.length ? lastWeekData.reduce((s, d) => s + d[k], 0) / lastWeekData.length : 0,
+  }))
+
+  // Weekly trend table cell color
+  function cellStatus(value: number, metric: string): string {
+    const bm = (benchmarks as Record<string, number>)[metric]
+    if (!bm) return 'transparent'
+    const s = rateStatus(value, bm)
+    if (s === 'green')   return 'rgba(16,185,129,0.15)'
+    if (s === 'amber')   return 'rgba(245,158,11,0.15)'
+    if (s === 'red')     return 'rgba(239,68,68,0.15)'
+    return 'transparent'
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Chart A: 90-day rate trends */}
+      <div className="rounded-xl p-5" style={CARD}>
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">30-Day Rate Trends</p>
+          <div className="flex gap-2">
+            {TOGGLEABLE_METRICS.map(m => (
+              <button
+                key={m.key}
+                onClick={() => toggleLine(m.key)}
+                className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors"
+                style={{
+                  backgroundColor: activeLines.includes(m.key) ? `${m.color}22` : 'rgba(255,255,255,0.04)',
+                  color: activeLines.includes(m.key) ? m.color : '#6b7280',
+                  border: `1px solid ${activeLines.includes(m.key) ? m.color + '44' : 'transparent'}`,
+                }}
+              >
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: activeLines.includes(m.key) ? m.color : '#4b5563' }} />
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={sparklines} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+            <XAxis dataKey="date" tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={d => d.slice(5)} interval={4} />
+            <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={v => `${v}%`} />
+            <Tooltip content={<ChartTooltip />} />
+            {TOGGLEABLE_METRICS.filter(m => activeLines.includes(m.key)).map(m => (
+              <Line
+                key={m.key}
+                type="monotone"
+                dataKey={m.key}
+                name={m.label}
+                stroke={m.color}
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Chart B: This week vs last week */}
+      <div className="rounded-xl p-5" style={CARD}>
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">This Week vs Last Week</p>
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={weekCompData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+            <XAxis dataKey="metric" tick={{ fill: '#9ca3af', fontSize: 11 }} />
+            <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={v => `${v.toFixed(0)}%`} />
+            <Tooltip content={<ChartTooltip />} />
+            <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af' }} />
+            <Bar dataKey="This Week" fill="#2563eb" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="Last Week" fill="rgba(255,255,255,0.15)" radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Chart C: 12-week trend table */}
+      <div className="rounded-xl p-5" style={CARD}>
+        <p className="mb-4 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">12-Week Trend</p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[600px] border-collapse text-[12px]">
+            <thead>
+              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                {['Week', 'Book %', 'Show %', 'Close %', 'Offer %', 'End-to-End'].map(h => (
+                  <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-widest text-[#6b7280]">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...weeklyTrend].reverse().map(w => (
+                <tr key={w.week_start} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                  <td className="px-3 py-2 text-[#9ca3af]">{w.week_label}</td>
+                  {[
+                    { val: w.book_rate,  bm: 'book_rate'  },
+                    { val: w.show_rate,  bm: 'show_rate'  },
+                    { val: w.close_rate, bm: 'close_rate' },
+                    { val: w.offer_rate, bm: 'offer_rate' },
+                    { val: w.end_to_end, bm: null         },
+                  ].map(({ val, bm }, i) => (
+                    <td
+                      key={i}
+                      className="px-3 py-2 font-mono font-medium text-[#f9fafb]"
+                      style={{ backgroundColor: bm ? cellStatus(val, bm) : 'transparent' }}
+                    >
+                      {fmtPct(val)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────
+// ── Main component ─────────────────────────────────────────────────────────────
 
 export default function MetricsDashboard() {
-  const [range,           setRange]           = useState<Range>('30d')
-  const [customFrom,      setCustomFrom]      = useState('')
-  const [customTo,        setCustomTo]        = useState('')
-  const [funnelName,      setFunnelName]      = useState<string>('')
-  const [selectedFunnelId,setSelectedFunnelId]= useState<string>('')
-  const [vslData,         setVslData]         = useState<VslMetricsResponse | null>(null)
-  const [funnelData,      setFunnelData]      = useState<FunnelMetricsResponse | null>(null)
-  const [branchData,      setBranchData]      = useState<FunnelBranchesResponse | null>(null)
-  const [loading,         setLoading]         = useState(true)
-  const [trackingBannerDismissed, setTrackingBannerDismissed] = useState(false)
+  const [range, setRange] = useState<string>('30d')
+  const [data, setData] = useState<CrmMetricsResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [closerTab, setCloserTab] = useState<'all_time' | 'current_month'>('current_month')
 
-  const buildParams = useCallback(() => {
-    const p = new URLSearchParams({ range })
-    if (range === 'custom' && customFrom) p.set('from', customFrom)
-    if (range === 'custom' && customTo)   p.set('to', customTo)
-    if (funnelName)                       p.set('funnel', funnelName)
-    if (selectedFunnelId)                 p.set('funnel_id', selectedFunnelId)
-    return p
-  }, [range, customFrom, customTo, funnelName, selectedFunnelId])
-
-  const fetchAll = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
-      const params = buildParams()
-      const [vslRes, funnelRes, branchRes] = await Promise.all([
-        fetch(`/api/metrics/vsl?${params}`),
-        fetch(`/api/metrics/funnel?${params}`),
-        fetch(`/api/metrics/funnel-branches?${params}`),
-      ])
-      if (vslRes.ok)    setVslData(await vslRes.json() as VslMetricsResponse)
-      if (funnelRes.ok) setFunnelData(await funnelRes.json() as FunnelMetricsResponse)
-      if (branchRes.ok) setBranchData(await branchRes.json() as FunnelBranchesResponse)
+      const res = await fetch(`/api/metrics/crm?range=${range}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? `HTTP ${res.status}`)
+      }
+      const json: CrmMetricsResponse = await res.json()
+      setData(json)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load metrics')
     } finally {
       setLoading(false)
     }
-  }, [buildParams])
+  }, [range])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => { fetchData() }, [fetchData])
 
-  // ── Derived values ──────────────────────────────────────────────────────
+  const isEmpty = !loading && !error && data && data.funnel.total_leads_entered === 0 && data.setters.length === 0 && data.closers_all_time.length === 0
 
-  const crm       = vslData?.current
-  const prev      = vslData?.previous
-  const pageNames = funnelData?.page_names ?? []
-  const dailyViews = funnelData?.daily_views ?? []
-
-  const totalVisitors     = funnelData?.total_visitors ?? 0
-  const prevTotalVisitors = funnelData?.prev_total_visitors ?? 0
-
-  const visitorsDelta  = pctDelta(totalVisitors, prevTotalVisitors)
-  const bookedDelta    = pctDelta(crm?.booked ?? 0, prev?.booked ?? 0)
-  const showRateDelta  = prev && crm ? pctDelta(crm.show_rate, prev.show_rate) : null
-  const closeRateDelta = prev && crm ? pctDelta(crm.close_rate, prev.close_rate) : null
-
-  const applyBook      = totalVisitors > 0 && crm ? (crm.booked / totalVisitors) * 100 : 0
-  const prevApplyBook  = prevTotalVisitors > 0 && prev ? (prev.booked / prevTotalVisitors) * 100 : 0
-  const applyBookDelta = pctDelta(applyBook, prevApplyBook)
-
-  const crmSteps = [
-    {
-      key: 'call_booked', title: 'Call Booked', icon: <Phone size={12} />,
-      count: crm?.booked ?? 0, accentColor: '#8b5cf6',
-      subLabel: `Show rate: ${crm ? fmtPct(crm.show_rate) : '—'}`,
-      convNext: crm && crm.booked > 0
-        ? Math.round((crm.showed / crm.booked) * 1000) / 10
-        : null,
-    },
-    {
-      key: 'showed', title: 'Showed', icon: <Users size={12} />,
-      count: crm?.showed ?? 0, accentColor: '#f59e0b',
-      subLabel: `Close rate: ${crm ? fmtPct(crm.close_rate) : '—'}`,
-      convNext: crm && crm.showed > 0
-        ? Math.round((crm.closed_won / crm.showed) * 1000) / 10
-        : null,
-    },
-    {
-      key: 'closed_won', title: 'Closed Won', icon: <DollarSign size={12} />,
-      count: crm?.closed_won ?? 0, accentColor: '#10b981',
-      subLabel: crm ? `Revenue: ${fmt$(crm.revenue)}` : 'Revenue: —',
-      convNext: null as number | null,
-    },
-  ]
-
-  const dailyBooked = (() => {
-    const leads = vslData?.leads ?? []
-    const map: Record<string, number> = {}
-    for (const l of leads) {
-      const d = l.created_at.slice(0, 10)
-      map[d] = (map[d] ?? 0) + 1
+  // Build sparkline data per metric key
+  const sparkByMetric = useMemo(() => {
+    if (!data) return {} as Record<MetricKey, number[]>
+    const out = {} as Record<MetricKey, number[]>
+    for (const def of METRIC_DEFS) {
+      out[def.key] = data.sparklines.map(s => (s as unknown as Record<string, number>)[def.key] ?? 0)
     }
-    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, count]) => ({ date, count }))
-  })()
+    return out
+  }, [data])
 
-  const deviceBreakdown  = funnelData?.overall_device_breakdown ?? { desktop: 0, mobile: 0, tablet: 0 }
-  const deviceTotal      = deviceBreakdown.desktop + deviceBreakdown.mobile + deviceBreakdown.tablet
-  const deviceChartData  = [
-    { name: 'Desktop', value: deviceBreakdown.desktop },
-    { name: 'Mobile',  value: deviceBreakdown.mobile },
-    { name: 'Tablet',  value: deviceBreakdown.tablet },
-  ]
-
-  const referrers    = funnelData?.overall_referrers ?? []
-  const referrerTotal = referrers.reduce((s, r) => s + r.count, 0)
-
-  const countries    = funnelData?.country_breakdown ?? []
-  const countryTotal = countries.reduce((s, c) => s + c.count, 0)
-
-  const hasData = !loading && (totalVisitors > 0 || (crm?.booked ?? 0) > 0)
-
-  // Branch funnel derived
-  const configFunnels  = branchData?.all_funnels ?? []
-  const hasFunnelConfig = configFunnels.length > 0
-
-  // Summary table rows
-  const branchSummary = (branchData?.branches ?? []).map(b => {
-    const entered    = b.steps[0]?.visits ?? 0
-    const converted  = b.steps[b.steps.length - 1]?.visits ?? 0
-    const rate       = entered > 0 ? (converted / entered) * 100 : 0
-    return { label: b.label, color: b.color, entered, converted, rate }
-  })
-
-  // ── Render ──────────────────────────────────────────────────────────────
+  // Setter sparklines: last 7 days of total_booked — we don't have per-user daily from API
+  // Use an empty array; the API could be extended later to provide this
+  const setterSparklines: Record<string, number[]> = {}
 
   return (
-    <div className="space-y-5">
-
-      {/* ── Range selector ──────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-0.5 bg-white/[0.04] rounded-xl p-1 border border-white/[0.06]">
-          {RANGES.map(r => (
-            <button
-              key={r.value}
-              onClick={() => setRange(r.value)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                range === r.value
-                  ? 'bg-white/10 text-white'
-                  : 'text-white/40 hover:text-white/70'
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-
-        {range === 'custom' && (
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={customFrom}
-              onChange={e => setCustomFrom(e.target.value)}
-              className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-white/70 focus:outline-none focus:border-white/20"
-            />
-            <span className="text-white/30 text-xs">to</span>
-            <input
-              type="date"
-              value={customTo}
-              onChange={e => setCustomTo(e.target.value)}
-              className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-white/70 focus:outline-none focus:border-white/20"
-            />
-          </div>
-        )}
-
-        {/* Funnel selector — shown when config funnels exist */}
-        {hasFunnelConfig && (
-          <select
-            value={selectedFunnelId || branchData?.funnel_id || ''}
-            onChange={e => {
-              const id     = e.target.value
-              const found  = configFunnels.find(f => f.id === id)
-              setSelectedFunnelId(id)
-              setFunnelName(found?.name ?? '')
-            }}
-            className="bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs text-white/70 focus:outline-none focus:border-white/20"
-          >
-            <option value="">All funnels</option>
-            {configFunnels.map(f => (
-              <option key={f.id} value={f.id}>{f.name}</option>
-            ))}
-          </select>
-        )}
-
-        {loading && <Loader2 size={13} className="animate-spin text-white/30" />}
-      </div>
-
-      {/* ── Tracking script banner ────────────────────────────────────────── */}
-      {!loading && totalVisitors === 0 && (crm?.booked ?? 0) > 0 && !trackingBannerDismissed && (
-        <div
-          className="flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-[13px]"
-          style={{
-            backgroundColor: 'rgba(245,158,11,0.08)',
-            border: '1px solid rgba(245,158,11,0.15)',
-            color: '#fbbf24',
-          }}
-        >
-          <span>Install the tracking script on your funnel pages to see visitor analytics.</span>
+    <div className="space-y-6">
+      {/* Time range toggle */}
+      <div className="flex gap-1">
+        {RANGES.map(r => (
           <button
-            onClick={() => setTrackingBannerDismissed(true)}
-            className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+            key={r.value}
+            onClick={() => setRange(r.value)}
+            className="rounded-lg px-3.5 py-1.5 text-[12.5px] font-medium transition-colors"
+            style={{
+              backgroundColor: range === r.value ? 'rgba(37,99,235,0.15)' : 'rgba(255,255,255,0.04)',
+              color: range === r.value ? '#60a5fa' : '#9ca3af',
+              border: range === r.value ? '1px solid rgba(37,99,235,0.3)' : '1px solid transparent',
+            }}
           >
-            <X size={14} />
+            {r.label}
           </button>
+        ))}
+      </div>
+
+      {loading && <DashboardSkeleton />}
+      {error && (
+        <div className="rounded-xl p-6 text-center text-[13px] text-[#ef4444]" style={CARD}>
+          Failed to load metrics: {error}
         </div>
       )}
+      {isEmpty && <EmptyState />}
 
-      {/* ── Section 1: KPI Bar ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {loading ? (
-          Array.from({ length: 5 }).map((_, i) => <SkeletonKpi key={i} />)
-        ) : (
-          <>
-            <KpiCard
-              label="Total Visitors"
-              value={fmtNum(totalVisitors)}
-              delta={visitorsDelta}
-              icon={<Users size={13} />}
-            />
-            <KpiCard
-              label="Apply → Book"
-              value={fmtPct(applyBook)}
-              delta={applyBookDelta}
-              icon={<TrendingUp size={13} />}
-              noTrend={prevTotalVisitors === 0}
-            />
-            <KpiCard
-              label="Total Booked Calls"
-              value={fmtNum(crm?.booked ?? 0)}
-              delta={bookedDelta}
-              icon={<Phone size={13} />}
-              accent="#8b5cf6"
-            />
-            <KpiCard
-              label="Show Rate"
-              value={fmtPct(crm?.show_rate ?? 0)}
-              delta={showRateDelta}
-              icon={<Eye size={13} />}
-              accent="#f59e0b"
-            />
-            <KpiCard
-              label="Close Rate"
-              value={fmtPct(crm?.close_rate ?? 0)}
-              delta={closeRateDelta}
-              icon={<DollarSign size={13} />}
-              accent="#10b981"
-            />
-          </>
-        )}
-      </div>
+      {!loading && !error && data && !isEmpty && (
+        <>
+          {/* Alert Banner */}
+          {data.alerts.length > 0 && <AlertBanner alerts={data.alerts} />}
 
-      {/* ── CRM Funnel ───────────────────────────────────────────────────── */}
-      {!loading && crm && (crm.booked > 0 || crm.showed > 0 || crm.closed_won > 0) && (
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
-          <SectionHeader icon={<Phone size={13} />} label="CRM Funnel" />
-          <div className="space-y-0">
-            {crmSteps.map((step, i) => (
-              <div key={step.key}>
-                <FunnelRow
-                  title={step.title}
-                  count={step.count}
-                  maxCount={crm.booked}
-                  barColor={step.accentColor}
-                  subValue={step.subLabel}
-                  icon={step.icon}
-                  isLast={i === crmSteps.length - 1}
-                />
-                {i < crmSteps.length - 1 && (
-                  <FunnelConnector pct={step.convNext} />
-                )}
-              </div>
+          {/* Funnel Visualization */}
+          <FunnelViz funnel={data.funnel} rates={data.rates} />
+
+          {/* 10 Metric Cards */}
+          <div className="grid grid-cols-5 gap-3">
+            {METRIC_DEFS.map(def => (
+              <MetricCard
+                key={def.key}
+                label={def.label}
+                value={(data.rates as Record<string, number>)[def.key] ?? 0}
+                prevValue={(data.prev_rates as Record<string, number>)[def.key] ?? 0}
+                benchmark={def.benchmark}
+                sparkData={sparkByMetric[def.key] ?? []}
+              />
             ))}
           </div>
-        </div>
-      )}
 
-      {/* ── Section 2: Branch Funnel ──────────────────────────────────────── */}
-      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
-        <SectionHeader icon={<GitBranch size={13} />} label="Conversion Branches" />
-
-        {loading ? (
-          <div className="space-y-4">
-            <div className="h-10 rounded-xl bg-white/[0.03] animate-pulse" />
-            <div className="grid grid-cols-3 gap-4">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="h-64 rounded-2xl bg-white/[0.02] animate-pulse" />
-              ))}
-            </div>
+          {/* Per-Setter Table */}
+          <div className="rounded-xl p-5" style={CARD}>
+            <p className="mb-4 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Setter Performance</p>
+            <SetterTable setters={data.setters} sparklinesByUser={setterSparklines} />
           </div>
-        ) : !hasFunnelConfig ? (
-          <div className="flex flex-col items-center justify-center py-10 gap-3">
-            <GitBranch className="w-8 h-8 text-white/10" />
-            <p className="text-white/30 text-sm">Set up your funnel in Settings</p>
-            <a
-              href="/dashboard/settings"
-              className="text-[12px] text-[#2563eb] hover:underline"
-            >
-              Go to Settings →
-            </a>
-          </div>
-        ) : (
-          <>
-            {/* Entry bar */}
-            <div
-              className="rounded-xl px-5 py-3 mb-5 flex items-center gap-3"
-              style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-            >
-              <Eye size={13} className="text-white/30 shrink-0" />
-              <span className="text-[13px] text-white/60">
-                <span className="text-white/80 font-medium">{branchData?.funnel_name}</span>
-                {' — '}Entry:{' '}
-                <span className="font-mono text-[12px] text-white/50">{branchData?.entry_path}</span>
-                {' — '}
-                <span className="font-mono font-bold text-white">{fmtNum(branchData?.entry_visits ?? 0)}</span>
-                {' visits'}
-              </span>
-            </div>
 
-            {/* 3 branch columns */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {(branchData?.branches ?? []).map(branch => (
-                <BranchColumn key={branch.id} branch={branch} />
-              ))}
-            </div>
-
-            {/* Summary table */}
-            {branchSummary.some(r => r.entered > 0) && (
-              <div className="mt-5">
-                <div
-                  className="rounded-xl overflow-hidden"
-                  style={{ border: '1px solid rgba(255,255,255,0.06)' }}
-                >
-                  <table className="w-full">
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        {['Branch', 'Entered', 'Converted', 'Rate'].map(h => (
-                          <th
-                            key={h}
-                            className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-widest text-white/25"
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {branchSummary.map((row, i) => (
-                        <tr
-                          key={row.label}
-                          style={{
-                            borderBottom: i < branchSummary.length - 1
-                              ? '1px solid rgba(255,255,255,0.04)'
-                              : undefined,
-                          }}
-                        >
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className="w-2 h-2 rounded-full shrink-0"
-                                style={{ backgroundColor: row.color }}
-                              />
-                              <span className="text-[13px] text-white/70">{row.label}</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 font-mono text-[13px] text-white/60 tabular-nums">
-                            {fmtNum(row.entered)}
-                          </td>
-                          <td className="px-4 py-3 font-mono text-[13px] text-white/60 tabular-nums">
-                            {fmtNum(row.converted)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className="font-mono text-[13px] font-semibold tabular-nums"
-                              style={{ color: row.color }}
-                            >
-                              {row.entered > 0 ? fmtPct(row.rate) : '—'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+          {/* Per-Closer Table */}
+          <div className="rounded-xl p-5" style={CARD}>
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Closer Performance</p>
+              <div className="flex gap-1">
+                {(['current_month', 'all_time'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setCloserTab(tab)}
+                    className="rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors"
+                    style={{
+                      backgroundColor: closerTab === tab ? 'rgba(37,99,235,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: closerTab === tab ? '#60a5fa' : '#9ca3af',
+                    }}
+                  >
+                    {tab === 'current_month' ? 'Current Month' : 'All Time'}
+                  </button>
+                ))}
               </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* ── Section 3: Daily Trends ───────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Page Views Area Chart */}
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
-          <SectionHeader icon={<Eye size={13} />} label="Page Views by Day" />
-
-          {loading ? (
-            <SkeletonChart />
-          ) : dailyViews.length === 0 ? (
-            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
-              No data for this period
             </div>
-          ) : (() => {
-            const chartData = dailyViews.map(pt => ({
-              date: pt.date as string,
-              views: pageNames.reduce(
-                (s, n) => s + (typeof pt[n] === 'number' ? (pt[n] as number) : 0),
-                0
-              ),
-            }))
-            return (
-              <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="pgGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="#2563eb" stopOpacity={0.25} />
-                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid vertical={false} stroke="#ffffff" strokeOpacity={0.05} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
-                    axisLine={false} tickLine={false}
-                    tickFormatter={fmtDate}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
-                    axisLine={false} tickLine={false} allowDecimals={false}
-                  />
-                  <RTooltip
-                    cursor={{ stroke: 'rgba(255,255,255,0.08)', strokeWidth: 1 }}
-                    contentStyle={TOOLTIP_STYLE}
-                    labelFormatter={d => fmtDate(d as string)}
-                    formatter={(v: unknown) => [fmtNum(Number(v)), 'Views']}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="views"
-                    stroke="#2563eb"
-                    strokeWidth={2}
-                    fill="url(#pgGrad)"
-                    dot={false}
-                    activeDot={{ r: 4, fill: '#2563eb', strokeWidth: 0 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            )
-          })()}
-        </div>
 
-        {/* Booked Calls Bar Chart */}
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
-          <SectionHeader icon={<Phone size={13} />} label="Booked Calls by Day" />
-
-          {loading ? (
-            <SkeletonChart />
-          ) : dailyBooked.length === 0 ? (
-            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
-              No data for this period
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart
-                data={dailyBooked}
-                margin={{ top: 4, right: 4, left: -24, bottom: 0 }}
-                barCategoryGap="40%"
-              >
-                <CartesianGrid vertical={false} stroke="#ffffff" strokeOpacity={0.05} />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
-                  axisLine={false} tickLine={false}
-                  tickFormatter={fmtDate}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10, fontFamily: 'var(--font-sans)' }}
-                  axisLine={false} tickLine={false} allowDecimals={false}
-                />
-                <RTooltip
-                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                  contentStyle={TOOLTIP_STYLE}
-                  labelFormatter={d => fmtDate(d as string)}
-                  formatter={(v: unknown) => [fmtNum(Number(v)), 'Booked']}
-                />
-                <Bar
-                  dataKey="count"
-                  fill="#2563eb"
-                  radius={[4, 4, 0, 0]}
-                  isAnimationActive={true}
-                  animationDuration={600}
-                  animationEasing="ease-out"
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
-      {/* ── Section 4: Traffic Sources + Device Breakdown ─────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Traffic Sources */}
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
-          <SectionHeader icon={<Globe size={13} />} label="Traffic Sources" />
-
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="animate-pulse">
-                  <div className="flex justify-between mb-1.5">
-                    <div className="h-2.5 w-20 rounded bg-white/[0.06]" />
-                    <div className="h-2.5 w-10 rounded bg-white/[0.04]" />
-                  </div>
-                  <div className="h-2 rounded-full bg-white/[0.04]" style={{ width: `${80 - i * 12}%` }} />
-                </div>
-              ))}
-            </div>
-          ) : referrers.length === 0 ? (
-            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
-              No referrer data yet
-            </div>
-          ) : (
-            <div className="space-y-3.5">
-              {referrers.map(r => {
-                const pct = referrerTotal > 0 ? (r.count / referrerTotal) * 100 : 0
-                return (
-                  <div key={r.source}>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <span className="text-[12px] font-medium text-white/70">
-                        {capitalize(r.source)}
-                      </span>
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-[11px] font-mono text-white/40">
-                          {fmtNum(r.count)}
-                        </span>
-                        <span className="text-[11px] font-semibold text-white/50 tabular-nums w-10 text-right">
-                          {pct.toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{
-                          width: `${pct}%`,
-                          background: 'linear-gradient(90deg, #2563eb, #3b82f6)',
-                        }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Device Breakdown */}
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
-          <SectionHeader icon={<Monitor size={13} />} label="Device Breakdown" />
-
-          {loading ? (
-            <SkeletonChart height={160} />
-          ) : deviceTotal === 0 ? (
-            <div className="h-[180px] flex items-center justify-center text-white/20 text-sm">
-              No device data yet
-            </div>
-          ) : (
-            <>
-              <div className="relative h-[160px]">
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie
-                      data={deviceChartData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={72}
-                      paddingAngle={3}
-                      dataKey="value"
-                      startAngle={90}
-                      endAngle={-270}
-                      strokeWidth={0}
-                    >
-                      {deviceChartData.map((_, i) => (
-                        <Cell key={i} fill={DEVICE_COLORS[i]} />
-                      ))}
-                    </Pie>
-                    <RTooltip
-                      contentStyle={TOOLTIP_STYLE}
-                      formatter={(v: unknown) => [fmtNum(Number(v)), '']}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="text-center">
-                    <div className="font-mono text-lg font-bold text-white tabular-nums leading-none">
-                      {fmtNum(deviceTotal)}
-                    </div>
-                    <div className="text-[9px] uppercase tracking-widest text-white/30 mt-0.5">
-                      sessions
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-center gap-5 mt-2">
-                {deviceChartData.map((d, i) => {
-                  const pct  = deviceTotal > 0 ? ((d.value / deviceTotal) * 100).toFixed(1) : '0.0'
-                  const Icon = DEVICE_ICONS[i]
-                  return (
-                    <div key={d.name} className="flex flex-col items-center gap-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: DEVICE_COLORS[i] }} />
-                        <Icon size={11} className="text-white/40" />
-                        <span className="text-[11px] text-white/50">{DEVICE_LABELS[i]}</span>
-                      </div>
-                      <span className="font-mono text-[13px] font-semibold text-white/70">{pct}%</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ── Section 5: Top Countries ─────────────────────────────────────── */}
-      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-6">
-        <SectionHeader icon={<Globe size={13} />} label="Top Countries" />
-
-        {loading ? (
-          <div className="space-y-0">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-4 py-3 border-b border-white/[0.04] animate-pulse">
-                <div className="w-6 h-4 rounded bg-white/[0.06]" />
-                <div className="h-2.5 w-28 rounded bg-white/[0.06] flex-1" />
-                <div className="h-2.5 w-12 rounded bg-white/[0.04]" />
-                <div className="h-2.5 w-10 rounded bg-white/[0.04]" />
-              </div>
-            ))}
-          </div>
-        ) : countries.length === 0 ? (
-          <div className="h-[120px] flex items-center justify-center text-white/20 text-sm">
-            No country data yet — IP lookup activates on new pageviews
-          </div>
-        ) : (
-          <div>
-            <div className="flex items-center gap-4 pb-2 mb-1 border-b border-white/[0.06]">
-              <span className="text-[10px] uppercase tracking-widest text-white/25 w-6 text-center">#</span>
-              <span className="text-[10px] uppercase tracking-widest text-white/25 flex-1">Country</span>
-              <span className="text-[10px] uppercase tracking-widest text-white/25 w-16 text-right">Visitors</span>
-              <span className="text-[10px] uppercase tracking-widest text-white/25 w-12 text-right">Share</span>
-            </div>
-            {countries.map((c, i) => {
-              const pct = countryTotal > 0 ? ((c.count / countryTotal) * 100).toFixed(1) : '0.0'
+            {/* Best / needs attention */}
+            {(() => {
+              const rows = closerTab === 'all_time' ? data.closers_all_time : data.closers_current_month
+              const withData = rows.filter(r => r.calls_taken > 0)
+              if (!withData.length) return null
+              const best = [...withData].sort((a, b) => b.close_rate - a.close_rate)[0]
+              const worst = withData.length > 1 ? [...withData].sort((a, b) => a.close_rate - b.close_rate)[0] : null
               return (
-                <div
-                  key={c.country}
-                  className="flex items-center gap-4 py-2.5 border-b border-white/[0.04] last:border-0 group"
-                >
-                  <span className="text-[11px] text-white/20 w-6 text-center tabular-nums font-mono">
-                    {i + 1}
-                  </span>
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-base leading-none select-none">{countryFlag(c.country)}</span>
-                    <span className="text-[13px] text-white/70 truncate">{countryName(c.country)}</span>
-                  </div>
-                  <span className="font-mono text-[13px] font-semibold text-white/60 tabular-nums w-16 text-right">
-                    {fmtNum(c.count)}
-                  </span>
-                  <div className="w-12 flex items-center justify-end gap-1.5">
-                    <span className="font-mono text-[11px] text-white/35 tabular-nums">{pct}%</span>
-                  </div>
+                <div className="mb-3 flex items-center gap-4 text-[12.5px]">
+                  <span>🏆 <span className="font-semibold text-[#f9fafb]">{best.name}</span> — {fmtPct(best.close_rate)} close rate this {closerTab === 'current_month' ? 'month' : 'all time'}</span>
+                  {worst && worst.user_id !== best.user_id && worst.calls_taken >= 3 && (
+                    <span className="text-[#f59e0b]">⚠️ Needs attention: <span className="font-semibold">{worst.name}</span> — {fmtPct(worst.close_rate)} close rate ({worst.calls_taken} calls)</span>
+                  )}
                 </div>
               )
-            })}
+            })()}
+
+            <CloserTable
+              closers={closerTab === 'all_time' ? data.closers_all_time : data.closers_current_month}
+            />
           </div>
-        )}
-      </div>
 
-      {/* Empty state for entire dashboard */}
-      {!loading && !hasData && (
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.012] p-12 text-center">
-          <TrendingUp className="w-8 h-8 text-white/10 mx-auto mb-3" />
-          <p className="text-white/30 text-sm">No data for this period</p>
-          <p className="text-white/15 text-xs mt-1">Add the tracking script to your funnel pages to start collecting data</p>
-        </div>
+          {/* Trend Charts */}
+          <div>
+            <p className="mb-4 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Trends</p>
+            <TrendCharts
+              sparklines={data.sparklines}
+              weeklyTrend={data.weekly_trend}
+              benchmarks={data.benchmarks}
+            />
+          </div>
+        </>
       )}
-
     </div>
   )
 }
