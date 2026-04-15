@@ -422,6 +422,147 @@ function ProductModal({
   )
 }
 
+// ── Revenue Snapshot Banner ────────────────────────────────────────────────────
+
+const MONO = "'JetBrains Mono', 'Fira Code', monospace"
+
+function SnapshotStat({
+  label, value, sub, accent,
+}: {
+  label: string; value: string; sub?: string; accent?: string
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <span
+        className="text-[10px] font-semibold uppercase tracking-widest"
+        style={{ color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em' }}
+      >
+        {label}
+      </span>
+      <span
+        className="text-[22px] font-bold leading-none truncate"
+        style={{ color: accent ?? '#f9fafb', fontFamily: MONO }}
+      >
+        {value}
+      </span>
+      {sub && (
+        <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          {sub}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function RevenueSnapshotBanner({
+  summary,
+  loading,
+  range,
+  customFrom,
+  customTo,
+}: {
+  summary: RevenueSummary | null
+  loading: boolean
+  range: Range
+  customFrom?: string
+  customTo?: string
+}) {
+  const s = summary
+
+  const rangeLabel =
+    range === 'today' ? 'Today' :
+    range === '7d'    ? 'Last 7 days' :
+    range === '30d'   ? 'Last 30 days' :
+    range === 'month' ? 'This month' :
+    range === 'all'   ? 'All time' :
+    customFrom && customTo ? `${customFrom} → ${customTo}` : 'Custom'
+
+  const gross = s?.cashCollected ?? 0
+  const net   = s?.netRevenue    ?? 0
+  const mrr   = s?.mrr           ?? 0
+  const arr   = s?.arr           ?? 0
+  const sales = s?.totalSales    ?? 0
+  const saved = gross - net  // platform fees deducted
+
+  return (
+    <div
+      className="mb-6 rounded-2xl overflow-hidden"
+      style={{
+        background: 'linear-gradient(135deg, #0d1117 0%, #111827 100%)',
+        border: '1px solid rgba(255,255,255,0.07)',
+      }}
+    >
+      {/* Header strip */}
+      <div
+        className="flex items-center justify-between px-5 py-3"
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+      >
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          <span className="text-[11px] font-semibold text-[#9ca3af] tracking-wide">
+            Revenue Snapshot
+          </span>
+          <span
+            className="rounded-md px-2 py-0.5 text-[10px] font-semibold"
+            style={{ backgroundColor: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)' }}
+          >
+            {rangeLabel}
+          </span>
+        </div>
+        {saved > 0 && !loading && (
+          <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.25)' }}>
+            {fmtUSD(saved)} in Whop fees (–3%)
+          </span>
+        )}
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 gap-0 sm:grid-cols-5">
+        {[
+          {
+            label: 'Gross Revenue',
+            value: loading ? '—' : fmtUSD(gross),
+            sub: 'total collected',
+          },
+          {
+            label: 'Net Revenue',
+            value: loading ? '—' : fmtUSD(net),
+            sub: 'after platform fees',
+            accent: '#34d399',
+          },
+          {
+            label: 'MRR',
+            value: loading ? '—' : fmtUSD(mrr),
+            sub: 'recurring / mo',
+            accent: '#60a5fa',
+          },
+          {
+            label: 'ARR',
+            value: loading ? '—' : fmtUSD(arr),
+            sub: 'annualised run rate',
+            accent: '#a78bfa',
+          },
+          {
+            label: 'Sales',
+            value: loading ? '—' : String(sales),
+            sub: 'transactions',
+          },
+        ].map((stat, i) => (
+          <div
+            key={stat.label}
+            className="px-5 py-4"
+            style={{
+              borderRight: i < 4 ? '1px solid rgba(255,255,255,0.05)' : undefined,
+            }}
+          >
+            <SnapshotStat {...stat} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Overview tab ───────────────────────────────────────────────────────────────
 
 interface OverviewExtras {
@@ -944,7 +1085,9 @@ type Tab = 'overview' | 'sales' | 'products'
 const EMPTY_SUMMARY: RevenueSummary = {
   period:        { from: '', to: '' },
   cashCollected: 0,
+  netRevenue:    0,
   mrr:           0,
+  arr:           0,
   newMrr:        0,
   avgDealValue:  0,
   totalSales:    0,
@@ -1064,6 +1207,15 @@ export default function RevenueView() {
 
   return (
     <div>
+      {/* Snapshot banner — always visible */}
+      <RevenueSnapshotBanner
+        summary={summary}
+        loading={summaryLoading}
+        range={range}
+        customFrom={customFrom}
+        customTo={customTo}
+      />
+
       {/* Tab bar */}
       <div className="mb-6 flex items-center gap-1 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
         {TABS.map((t) => (

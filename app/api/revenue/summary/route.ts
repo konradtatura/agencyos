@@ -75,6 +75,14 @@ export async function GET(req: Request) {
   // MRR = sum of all recurring sales (simplistic — each recurring sale = monthly revenue)
   const mrr    = rows.filter((r) => r.payment_type === 'recurring').reduce((s, r) => s + Number(r.amount), 0)
   const newMrr = mrr  // all recurring in period considered "new" for now
+  const arr    = mrr * 12
+
+  // Net revenue = gross minus platform fees
+  // Whop standard plan: ~3% platform fee. Other platforms assumed 0 additional fee.
+  const WHOP_FEE = 0.03
+  const whopGross  = rows.filter((r) => r.platform === 'whop').reduce((s, r) => s + Number(r.amount), 0)
+  const otherGross = cashCollected - whopGross
+  const netRevenue = otherGross + whopGross * (1 - WHOP_FEE)
 
   // By tier — fall back to 'lt' so unclassified sales always appear somewhere
   const tierMap = new Map<string, { total: number; count: number }>()
@@ -147,7 +155,9 @@ export async function GET(req: Request) {
   const summary: RevenueSummary = {
     period:       { from, to },
     cashCollected,
+    netRevenue,
     mrr,
+    arr,
     newMrr,
     avgDealValue,
     totalSales,

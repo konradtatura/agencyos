@@ -44,7 +44,9 @@ export interface SaleWithRelations extends Sale {
 export interface RevenueSummary {
   period:       { from: string; to: string }
   cashCollected: number
+  netRevenue:    number   // cashCollected minus platform fees (3% for Whop)
   mrr:           number
+  arr:           number   // mrr × 12
   newMrr:        number
   avgDealValue:  number
   totalSales:    number
