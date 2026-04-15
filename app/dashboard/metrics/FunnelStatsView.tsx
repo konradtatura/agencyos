@@ -14,55 +14,62 @@ const RANGES = [
   { value: 'all',   label: 'All Time'   },
 ]
 
+const MONO = "'JetBrains Mono', 'Fira Code', monospace"
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function pct(n: number, d: number): string {
-  if (!d) return '—'
-  return `${((n / d) * 100).toFixed(1)}%`
+/** Safe percentage — returns null if would exceed 100% or denominator is 0 */
+function safePct(n: number, d: number): number | null {
+  if (!d) return null
+  const v = (n / d) * 100
+  return v > 100 ? null : v
 }
 
-function continuedColor(ratio: number): string {
-  if (ratio >= 0.5) return '#10b981'
-  if (ratio >= 0.2) return '#f59e0b'
+function fmtPct(n: number | null): string {
+  if (n === null) return '—'
+  return `${n.toFixed(1)}%`
+}
+
+function nextColor(pct: number | null): string {
+  if (pct === null) return 'rgba(255,255,255,0.25)'
+  if (pct >= 40) return '#10b981'
+  if (pct >= 15) return '#f59e0b'
   return '#ef4444'
 }
 
 // ── Loading skeleton ───────────────────────────────────────────────────────────
 
-function Skeleton({ className = '' }: { className?: string }) {
-  return (
-    <div
-      className={`animate-pulse rounded ${className}`}
-      style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
-    />
-  )
-}
-
 function LoadingSkeleton() {
-  return (
-    <div className="space-y-4">
-      <Skeleton className="h-28 w-full" />
-      <Skeleton className="h-40 w-full" />
-      <Skeleton className="h-40 w-full" />
-      <Skeleton className="h-40 w-full" />
-    </div>
-  )
-}
-
-// ── Card wrapper ──────────────────────────────────────────────────────────────
-
-function Card({ children, style = {} }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div
       style={{
-        backgroundColor: '#111827',
+        backgroundColor: '#0d1117',
         border: '1px solid rgba(255,255,255,0.06)',
         borderRadius: 12,
-        padding: '20px 24px',
-        ...style,
+        overflow: 'hidden',
       }}
     >
-      {children}
+      {/* Header row */}
+      <div
+        className="animate-pulse"
+        style={{
+          height: 36,
+          backgroundColor: 'rgba(255,255,255,0.04)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+        }}
+      />
+      {/* Skeleton rows */}
+      {Array.from({ length: 7 }).map((_, i) => (
+        <div
+          key={i}
+          className="animate-pulse"
+          style={{
+            height: 48,
+            borderBottom: '1px solid rgba(255,255,255,0.04)',
+            backgroundColor: i % 3 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent',
+          }}
+        />
+      ))}
     </div>
   )
 }
@@ -70,9 +77,9 @@ function Card({ children, style = {} }: { children: React.ReactNode; style?: Rea
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function FunnelStatsView() {
-  const [range, setRange] = useState('30d')
+  const [range, setRange]     = useState('30d')
   const [funnelId, setFunnelId] = useState<string>('')
-  const [data, setData] = useState<FunnelBranchesResponse | null>(null)
+  const [data, setData]       = useState<FunnelBranchesResponse | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -84,18 +91,16 @@ export default function FunnelStatsView() {
       .then(r => r.json())
       .then((d: FunnelBranchesResponse) => {
         setData(d)
-        // Set default funnel_id on first load
         if (!funnelId && d.funnel_id) setFunnelId(d.funnel_id)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [range, funnelId])
 
-  // ── Controls ───────────────────────────────────────────────────────────────
+  // ── Controls (unchanged) ───────────────────────────────────────────────────
 
   const controls = (
     <div className="flex items-center gap-3 mb-6 flex-wrap">
-      {/* Funnel selector */}
       {data && data.all_funnels.length > 1 && (
         <select
           value={funnelId}
@@ -113,7 +118,6 @@ export default function FunnelStatsView() {
         </select>
       )}
 
-      {/* Date range toggles */}
       <div
         className="flex items-center gap-0.5 rounded-lg p-0.5"
         style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.06)' }}
@@ -135,6 +139,12 @@ export default function FunnelStatsView() {
     </div>
   )
 
+  // ── Loading ────────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return <div>{controls}<LoadingSkeleton /></div>
+  }
+
   // ── Empty state ────────────────────────────────────────────────────────────
 
   const hasData = data && (
@@ -142,42 +152,58 @@ export default function FunnelStatsView() {
     data.branches.some(b => b.steps.some(s => s.visits > 0))
   )
 
-  if (loading) {
-    return (
-      <div>
-        {controls}
-        <LoadingSkeleton />
-      </div>
-    )
-  }
-
   if (!hasData) {
     return (
       <div>
         {controls}
-        <p className="text-sm text-[#6b7280] text-center py-8">
-          No funnel data yet.
-          <br />
-          <span className="text-[#4b5563]">
-            Paste the tracking script into each GHL funnel page to start tracking. The script is shown above ↑
-          </span>
-        </p>
+        <div
+          className="text-center py-12"
+          style={{
+            backgroundColor: '#0d1117',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: 12,
+          }}
+        >
+          <p className="text-sm font-medium text-[#9ca3af] mb-1">No funnel data yet</p>
+          <p className="text-xs text-[#4b5563]">
+            Paste the tracking script into your GHL funnel pages to start tracking.
+            <br />The script is in the panel above ↑
+          </p>
+        </div>
       </div>
     )
   }
 
   const entryVisits = data!.entry_visits
 
-  // ── Biggest drop-off ───────────────────────────────────────────────────────
+  // ── Biggest drop-off (non-zero steps only) ─────────────────────────────────
 
-  let worstStep: { label: string; branchLabel: string; ratio: number } | null = null
+  let worstStep: { label: string; branchLabel: string; pct: number } | null = null
   for (const branch of data!.branches) {
     for (const step of branch.steps) {
-      const ratio = entryVisits > 0 ? step.visits / entryVisits : 0
-      if (!worstStep || ratio < worstStep.ratio) {
-        worstStep = { label: step.label, branchLabel: branch.label, ratio }
+      if (!step.visits) continue
+      const p = safePct(step.visits, entryVisits)
+      if (p !== null && (!worstStep || p < worstStep.pct)) {
+        worstStep = { label: step.label, branchLabel: branch.label, pct: p }
       }
     }
+  }
+
+  // ── Table cell style helpers ───────────────────────────────────────────────
+
+  const cellBase: React.CSSProperties = {
+    padding: '10px 16px',
+    borderBottom: '1px solid rgba(255,255,255,0.04)',
+    verticalAlign: 'middle',
+    fontSize: 13,
+  }
+
+  const numCell: React.CSSProperties = {
+    ...cellBase,
+    fontFamily: MONO,
+    textAlign: 'right',
+    color: 'rgba(255,255,255,0.8)',
+    whiteSpace: 'nowrap',
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -186,101 +212,173 @@ export default function FunnelStatsView() {
     <div>
       {controls}
 
-      {/* Entry step */}
-      <Card style={{ marginBottom: 12 }}>
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <span className="text-xs font-medium uppercase tracking-wider text-[#6b7280]">Entry</span>
-            <p className="text-sm text-[#9ca3af] mt-0.5" style={{ fontFamily: 'monospace' }}>
-              {data!.entry_path}
-            </p>
-          </div>
-          <span
-            className="text-2xl font-bold tabular-nums"
-            style={{ fontFamily: "'JetBrains Mono', monospace", color: '#f9fafb' }}
-          >
-            {entryVisits.toLocaleString()}
-            <span className="text-sm font-normal text-[#6b7280] ml-1">visitors</span>
-          </span>
-        </div>
-        <div className="w-full rounded-full h-2" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
-          <div
-            className="h-2 rounded-full"
-            style={{ width: '100%', backgroundColor: 'rgba(255,255,255,0.2)' }}
-          />
-        </div>
-        <p className="text-xs text-[#6b7280] mt-1.5 text-right">100% — entry baseline</p>
-      </Card>
+      {/* Table */}
+      <div
+        style={{
+          backgroundColor: '#0d1117',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}
+      >
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          {/* Header */}
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              {['Page', 'Unique', '→ Next', '% of Entry'].map((col, i) => (
+                <th
+                  key={col}
+                  style={{
+                    padding: '10px 16px',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'rgba(255,255,255,0.3)',
+                    textAlign: i === 0 ? 'left' : 'right',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
 
-      {/* Branch cards */}
-      {data!.branches.map(branch => (
-        <Card key={branch.id} style={{ marginBottom: 12 }}>
-          {/* Branch header */}
-          <div
-            className="text-xs font-semibold uppercase tracking-wider mb-4 pb-2"
-            style={{
-              color: branch.color,
-              borderBottom: `1px solid ${branch.color}22`,
-            }}
-          >
-            {branch.label}
-          </div>
-
-          {/* Steps */}
-          <div className="space-y-4">
-            {branch.steps.map((step, idx) => {
-              const prev = idx === 0 ? entryVisits : branch.steps[idx - 1].visits
-              const continuedRatio = prev > 0 ? step.visits / prev : 0
-              const hasVisits = step.visits > 0
-
-              return (
-                <div key={step.path} style={{ opacity: hasVisits ? 1 : 0.4 }}>
-                  {/* Step row */}
-                  <div className="flex items-center gap-3 mb-1.5">
-                    <span className="text-sm text-[#f9fafb] w-40 shrink-0 truncate">{step.label}</span>
-                    <span
-                      className="text-sm tabular-nums w-16 shrink-0"
-                      style={{ fontFamily: "'JetBrains Mono', monospace", color: '#f9fafb' }}
-                    >
-                      {hasVisits ? step.visits.toLocaleString() : '—'}
-                    </span>
-                    {/* Bar */}
-                    <div className="flex-1 rounded-full h-1.5" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
-                      {hasVisits && entryVisits > 0 && (
-                        <div
-                          className="h-1.5 rounded-full transition-all duration-500"
-                          style={{
-                            width: `${Math.min((step.visits / entryVisits) * 100, 100)}%`,
-                            backgroundColor: `${branch.color}88`,
-                          }}
-                        />
-                      )}
-                    </div>
-                    <span className="text-xs text-[#6b7280] w-24 text-right shrink-0">
-                      {pct(step.visits, entryVisits)} of entry
-                    </span>
-                  </div>
-
-                  {/* Continued indicator (between steps) */}
-                  {idx < branch.steps.length - 1 && hasVisits && (
-                    <p
-                      className="text-xs ml-44 mt-1"
-                      style={{ color: continuedColor(continuedRatio) }}
-                    >
-                      ↓ {pct(branch.steps[idx + 1].visits, step.visits)} continued
-                    </p>
-                  )}
+          <tbody>
+            {/* ── Entry row ─────────────────────────────────────────────── */}
+            <tr>
+              <td
+                style={{
+                  ...cellBase,
+                  borderLeft: '2px solid #2563eb',
+                  paddingLeft: 14,
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
+                    {data!.funnel_name || 'Entry'}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      backgroundColor: 'rgba(37,99,235,0.15)',
+                      color: '#60a5fa',
+                      letterSpacing: '0.05em',
+                    }}
+                  >
+                    ENTRY
+                  </span>
                 </div>
-              )
-            })}
-          </div>
-        </Card>
-      ))}
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2, fontFamily: MONO }}>
+                  {data!.entry_path}
+                </div>
+              </td>
+              <td style={numCell}>{entryVisits.toLocaleString()}</td>
+              <td style={{ ...numCell, color: 'rgba(255,255,255,0.2)' }}>—</td>
+              <td style={{ ...numCell, color: 'rgba(255,255,255,0.35)' }}>100% — baseline</td>
+            </tr>
+
+            {/* ── Branches ──────────────────────────────────────────────── */}
+            {data!.branches.map(branch => (
+              <>
+                {/* Branch separator */}
+                <tr key={`sep-${branch.id}`}>
+                  <td
+                    colSpan={4}
+                    style={{
+                      padding: '0 16px',
+                      height: 32,
+                      backgroundColor: `${branch.color}14`,
+                      borderTop: '1px solid rgba(255,255,255,0.04)',
+                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        backgroundColor: `${branch.color}22`,
+                        color: branch.color,
+                      }}
+                    >
+                      {branch.label}
+                    </span>
+                  </td>
+                </tr>
+
+                {/* Step rows */}
+                {branch.steps.map((step, idx) => {
+                  const hasVisits = step.visits > 0
+                  const ofEntry   = safePct(step.visits, entryVisits)
+
+                  // → Next: next step in THIS branch, never across branches
+                  const nextStep  = branch.steps[idx + 1]
+                  const nextPct   = nextStep
+                    ? safePct(nextStep.visits, step.visits)
+                    : null
+                  const isLast    = idx === branch.steps.length - 1
+
+                  return (
+                    <tr
+                      key={step.path}
+                      style={{ opacity: hasVisits ? 1 : 0.45 }}
+                    >
+                      {/* Page name + path */}
+                      <td style={{ ...cellBase, paddingLeft: 28 }}>
+                        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>
+                          {step.label}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2, fontFamily: MONO }}>
+                          {step.path}
+                        </div>
+                      </td>
+
+                      {/* Unique */}
+                      <td style={numCell}>
+                        {hasVisits ? step.visits.toLocaleString() : '—'}
+                      </td>
+
+                      {/* → Next */}
+                      <td style={{ ...numCell, color: isLast ? 'rgba(255,255,255,0.2)' : nextColor(nextPct) }}>
+                        {isLast
+                          ? '—'
+                          : nextPct === null
+                            ? <span title="Direct traffic detected — step has more visits than previous step">—*</span>
+                            : `${nextPct.toFixed(1)}%`
+                        }
+                      </td>
+
+                      {/* % of Entry */}
+                      <td style={{ ...numCell, color: 'rgba(255,255,255,0.35)' }}>
+                        {fmtPct(ofEntry)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Summary line */}
+      <p className="text-xs text-[#6b7280] mt-3 px-1">
+        {entryVisits.toLocaleString()} total unique visitors entered this funnel in the selected period
+      </p>
 
       {/* Biggest drop-off callout */}
       {worstStep && entryVisits > 0 && (
         <div
-          className="flex items-start gap-2 mt-2 px-4 py-3 rounded-lg text-sm"
+          className="flex items-start gap-2 mt-3 px-4 py-3 rounded-lg text-sm"
           style={{
             backgroundColor: 'rgba(245,158,11,0.08)',
             border: '1px solid rgba(245,158,11,0.2)',
@@ -290,10 +388,8 @@ export default function FunnelStatsView() {
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
             Biggest drop-off:{' '}
-            <strong>
-              {worstStep.label} ({worstStep.branchLabel})
-            </strong>{' '}
-            — only {(worstStep.ratio * 100).toFixed(1)}% of visitors reach this step
+            <strong>{worstStep.label} ({worstStep.branchLabel})</strong>
+            {' '}— only {worstStep.pct.toFixed(1)}% of entry visitors reached this step
           </span>
         </div>
       )}
