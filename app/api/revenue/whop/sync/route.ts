@@ -16,6 +16,8 @@ interface WhopPayment {
   id:         string
   status:     string
   substatus?: string | null
+  // "subscription_creation" | "subscription_renewal" | "one_time_payment" | etc.
+  reason?:    string | null
   paid_at:    string | null
   created_at: string
   final_amount?: number | null
@@ -30,6 +32,8 @@ interface WhopPayment {
     id:             string
     billing_type?:  string | null   // 'one_time' | 'recurring'
     interval?:      string | null   // 'monthly' | 'yearly' | etc.
+    renewal_period_duration?: number | null
+    renewal_period_type?:     string | null   // 'monthly' | 'yearly'
   } | null
   user?: {
     email: string | null
@@ -257,13 +261,19 @@ export async function POST() {
     const amount   = p.final_amount ?? p.subtotal ?? 0
     const saleDate = p.paid_at ? p.paid_at.slice(0, 10) : p.created_at.slice(0, 10)
     const currency = p.currency?.toUpperCase() ?? null
-    // Detect recurring: plan with recurring billing_type, or monthly/yearly interval
+    // Detect recurring via multiple signals (Whop API is inconsistent across versions):
+    // 1. reason field: "subscription_creation" / "subscription_renewal" (most reliable)
+    // 2. plan.renewal_period_type present = it's a subscription plan
+    // 3. plan.billing_type === 'recurring' or plan.interval (fallback)
+    const reason = (p.reason ?? '').toLowerCase()
     const planBilling = p.plan?.billing_type ?? p.billing_type
-    const planInterval = p.plan?.interval
+    const planInterval = p.plan?.interval ?? p.plan?.renewal_period_type
     const isRecurring =
+      reason.includes('subscription') ||
       planBilling === 'recurring' ||
       (planInterval != null && planInterval !== 'one_time' && planInterval !== '')
 
+    if (isRecurring) console.log(`[whop/sync] recurring: id=${p.id} reason="${p.reason}" planBilling="${planBilling}" planInterval="${planInterval}"`)
     const productId = await resolveProductId(p.product?.id, p.product?.title, amount, isRecurring)
 
     const { error } = await admin.from('sales').upsert(
