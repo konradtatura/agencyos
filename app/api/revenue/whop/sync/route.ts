@@ -282,9 +282,9 @@ export async function POST() {
     // billing_reason is the authoritative Whop field:
     // "subscription_create" | "subscription_cycle" | "subscription_update" | "subscription" → recurring
     // "one_time" | "manual" | null → upfront
+    // NOTE: membership.id exists on ALL payments (one-time too) — don't use it
     const billingReason = (p.billing_reason ?? '').toLowerCase()
-    const hasMembership = !!(p.membership?.id)
-    const isRecurring   = billingReason.startsWith('subscription') || hasMembership
+    const isRecurring   = billingReason.startsWith('subscription')
 
     console.log(`[whop/sync] id=${p.id} billing_reason="${p.billing_reason}" membership="${p.membership?.id ?? 'none'}" → ${isRecurring ? 'RECURRING' : 'upfront'}`)
 
