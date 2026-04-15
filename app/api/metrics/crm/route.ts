@@ -200,7 +200,7 @@ function resolvePeriod(range: string, fromParam?: string, toParam?: string): Per
 function buildFunnelFromHistory(
   historyRows: { to_stage: string; changed_at: string; lead_id: string }[],
   leadsInPeriod: { id: string }[],
-  allLeads: { id: string; pipeline_type: string; downgrade_stage: string | null; created_at: string }[],
+  allLeads: { id: string; pipeline_type: string; downgrade_stage: string | null; created_at: string; stage?: string }[],
   from: Date,
   to: Date
 ) {
@@ -214,17 +214,37 @@ function buildFunnelFromHistory(
     }
   }
 
-  const count = (stage: string) => reached[stage]?.size ?? 0
+  const countFromHistory = (stage: string) => reached[stage]?.size ?? 0
 
-  // Fall back to current lead.stage if history is empty
-  const fallback = leadsInPeriod.length > 0 && Object.keys(reached).length === 0
+  // Build a map of current stage for leads in period (for per-stage fallback)
+  const periodLeadIds = new Set(leadsInPeriod.map(l => l.id))
+  const stageCount = (stage: string) => {
+    // Primary: use history counts
+    const fromHistory = countFromHistory(stage)
+    if (fromHistory > 0) return fromHistory
+    // Fallback: count leads in period whose current stage matches or has passed this stage
+    // Only kick in when history returned nothing for this specific stage
+    const stageOrder = ['new', 'qualified', 'call_booked', 'showed', 'closed_won', 'disqualified']
+    const stageIdx = stageOrder.indexOf(stage)
+    return allLeads.filter(l => {
+      if (!periodLeadIds.has(l.id)) return false
+      const currentIdx = stageOrder.indexOf(l.stage ?? '')
+      // Lead's current stage is at or past the target stage (it did pass through it)
+      return stageIdx >= 0 && currentIdx >= stageIdx
+    }).length
+  }
 
   const total_leads_entered = leadsInPeriod.length
-  const qualified    = fallback ? leadsInPeriod.filter(l => allLeads.find(al => al.id === l.id && ['qualified','call_booked','showed','closed_won'].includes((al as any).stage))).length : count('qualified')
-  const call_booked  = fallback ? 0 : count('call_booked')
-  const showed       = fallback ? 0 : count('showed')
-  const closed_won   = fallback ? 0 : count('closed_won')
-  const disqualified = fallback ? 0 : count('disqualified')
+
+  // qualified = leads that reached qualified or further
+  const qualified    = stageCount('qualified')
+  const call_booked  = stageCount('call_booked')
+  const showed       = stageCount('showed')
+  const closed_won   = stageCount('closed_won')
+  // disqualified is a terminal branch, not part of the linear order — count directly
+  const disqualified = countFromHistory('disqualified') > 0
+    ? countFromHistory('disqualified')
+    : allLeads.filter(l => periodLeadIds.has(l.id) && l.stage === 'disqualified').length
 
   // Downgrade closed: pipeline_type='downgrade' AND downgrade_stage='closed' updated in period
   const downgrade_closed = allLeads.filter(l =>
