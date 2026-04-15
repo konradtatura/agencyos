@@ -20,6 +20,7 @@ export default async function DashboardLayout({
   // them before this layout renders, but guard here too.
   if (user.role === 'setter') redirect('/setter/dms')
   if (user.role === 'closer') redirect('/closer/crm')
+  if (user.role === 'sales_admin') redirect('/sales-admin/forms')
 
   const admin = createAdminClient()
 
@@ -36,6 +37,7 @@ export default async function DashboardLayout({
 
   // ── DM unread badge ────────────────────────────────────────────────────────
   let dmUnreadCount = 0
+  let tallyNewCount = 0
   try {
     const creatorIdForDms = await getCreatorId()
     if (creatorIdForDms) {
@@ -45,6 +47,16 @@ export default async function DashboardLayout({
         .eq('creator_id', creatorIdForDms)
         .gt('unread_count', 0)
       dmUnreadCount = (unreadRows ?? []).reduce((sum, r) => sum + (r.unread_count as number), 0)
+
+      try {
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+        const { count } = await admin
+          .from('tally_submissions')
+          .select('*', { count: 'exact', head: true })
+          .eq('creator_id', creatorIdForDms)
+          .gte('submitted_at', since)
+        tallyNewCount = count ?? 0
+      } catch { /* non-critical */ }
     }
   } catch { /* non-critical */ }
 
@@ -105,6 +117,7 @@ export default async function DashboardLayout({
         creatorName={creatorName}
         creatorNiche={creatorNiche}
         dmUnreadCount={dmUnreadCount}
+        tallyNewCount={tallyNewCount}
         isImpersonating={!!impersonatingId}
       />
       <main

@@ -35,7 +35,28 @@ export default async function CalendarPage() {
   return (
     <div>
       <PageHeader title="Calendar" subtitle="Booked calls and appointments." />
-      <CalendarView leads={leads} />
+      {!creatorId ? (
+        <div
+          className="flex min-h-[40vh] items-center justify-center rounded-xl"
+          style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <div className="text-center">
+            <p className="mb-1 text-[14px] font-semibold text-[#f9fafb]">No creator selected</p>
+            <p className="mb-5 text-[13px]" style={{ color: '#9ca3af' }}>
+              Impersonate a creator from the Creators page to view their calendar.
+            </p>
+            <a
+              href="/admin/creators"
+              className="rounded-lg px-4 py-2 text-[13px] font-semibold text-white"
+              style={{ backgroundColor: '#2563eb' }}
+            >
+              Go to Creators
+            </a>
+          </div>
+        </div>
+      ) : (
+        <CalendarView leads={leads} />
+      )}
     </div>
   )
 }

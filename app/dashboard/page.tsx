@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import PageHeader from '@/components/ui/page-header'
 import TopPostsWidget from './top-posts-widget'
 import StoriesThisWeekWidget from './stories-this-week-widget'
@@ -17,6 +18,17 @@ export default async function DashboardPage() {
       .maybeSingle()
 
     creatorName = profile?.name ?? ''
+
+    if (!creatorName) {
+      const adminSupabase = createAdminClient()
+      const { data: userData } = await adminSupabase
+        .from('users')
+        .select('full_name')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      creatorName = userData?.full_name ?? ''
+    }
   }
 
   const firstName = creatorName.trim().split(/\s+/)[0] || 'there'
