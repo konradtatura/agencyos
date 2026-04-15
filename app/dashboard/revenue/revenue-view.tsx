@@ -8,6 +8,9 @@ import {
 } from 'recharts'
 import { Plus, Pencil, Trash2, RefreshCw, TrendingUp, DollarSign, ShoppingCart, BarChart2, ArrowRight } from 'lucide-react'
 import type { RevenueSummary, Sale, SaleWithRelations, Product } from '@/types/revenue'
+import DateRangePicker from '@/components/ui/date-range-picker'
+
+type Range = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -31,16 +34,6 @@ const CARD = {
 const TIER_COLORS: Record<string, string> = { ht: '#a78bfa', mt: '#60a5fa', lt: '#34d399' }
 const TIER_LABELS: Record<string, string> = { ht: 'High-ticket', mt: 'Mid-ticket', lt: 'Low-ticket' }
 const PLATFORM_COLORS: Record<string, string> = { whop: '#a78bfa', stripe: '#60a5fa', manual: '#6b7280' }
-
-// ── Range selector ─────────────────────────────────────────────────────────────
-
-const RANGES = [
-  { value: 'today', label: 'Today' },
-  { value: '7d',    label: '7d' },
-  { value: '30d',   label: '30d' },
-  { value: 'month', label: 'This month' },
-  { value: 'all',   label: 'All time' },
-]
 
 // ── Stat card ──────────────────────────────────────────────────────────────────
 
@@ -439,12 +432,14 @@ interface OverviewExtras {
   outstandingAmt:  number
 }
 
-function OverviewTab({ summary, loading, error, range, onRangeChange, extras }: {
+function OverviewTab({ summary, loading, error, range, customFrom, customTo, onRangeChange, extras }: {
   summary: RevenueSummary | null
   loading: boolean
   error:   string | null
-  range: string
-  onRangeChange: (r: string) => void
+  range: Range
+  customFrom?: string
+  customTo?: string
+  onRangeChange: (v: { range: Range; from?: string; to?: string }) => void
   extras: OverviewExtras
 }) {
   if (loading) {
@@ -528,22 +523,11 @@ function OverviewTab({ summary, loading, error, range, onRangeChange, extras }: 
         </Link>
       )}
 
-      {/* Range pills */}
-      <div className="flex gap-2">
-        {RANGES.map((r) => (
-          <button
-            key={r.value}
-            onClick={() => onRangeChange(r.value)}
-            className="rounded-full px-3.5 py-1 text-[12.5px] font-medium transition-colors"
-            style={{
-              backgroundColor: range === r.value ? '#2563eb' : 'rgba(255,255,255,0.05)',
-              color:           range === r.value ? '#fff'    : '#9ca3af',
-            }}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
+      {/* Range picker */}
+      <DateRangePicker
+        value={{ range, from: customFrom, to: customTo }}
+        onChange={onRangeChange}
+      />
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -687,7 +671,9 @@ function OverviewTab({ summary, loading, error, range, onRangeChange, extras }: 
 function SalesTab({ products }: { products: Product[] }) {
   const [sales,      setSales]      = useState<SaleWithRelations[]>([])
   const [loading,    setLoading]    = useState(true)
-  const [range,      setRange]      = useState('30d')
+  const [range,      setRange]      = useState<Range>('30d')
+  const [customFrom, setCustomFrom] = useState<string | undefined>()
+  const [customTo,   setCustomTo]   = useState<string | undefined>()
   const [platform,   setPlatform]   = useState('')
   const [editSale,   setEditSale]   = useState<SaleWithRelations | null | undefined>(undefined)
   const [deleting,   setDeleting]   = useState<string | null>(null)
@@ -695,12 +681,14 @@ function SalesTab({ products }: { products: Product[] }) {
   const load = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams({ range })
+    if (range === 'custom' && customFrom) params.set('from', customFrom)
+    if (range === 'custom' && customTo)   params.set('to', customTo)
     if (platform) params.set('platform', platform)
     const res  = await fetch(`/api/revenue/sales?${params}`)
     const data = await res.json()
     setSales(Array.isArray(data) ? data : [])
     setLoading(false)
-  }, [range, platform])
+  }, [range, customFrom, customTo, platform])
 
   useEffect(() => { load() }, [load])
 
@@ -716,21 +704,14 @@ function SalesTab({ products }: { products: Product[] }) {
     <div className="space-y-4">
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-2">
-          {RANGES.map((r) => (
-            <button
-              key={r.value}
-              onClick={() => setRange(r.value)}
-              className="rounded-full px-3.5 py-1 text-[12.5px] font-medium"
-              style={{
-                backgroundColor: range === r.value ? '#2563eb' : 'rgba(255,255,255,0.05)',
-                color:           range === r.value ? '#fff'    : '#9ca3af',
-              }}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
+        <DateRangePicker
+          value={{ range, from: customFrom, to: customTo }}
+          onChange={(v) => {
+            setRange(v.range as Range)
+            setCustomFrom(v.from)
+            setCustomTo(v.to)
+          }}
+        />
 
         <select
           value={platform}
@@ -980,7 +961,9 @@ const EMPTY_EXTRAS: OverviewExtras = {
 
 export default function RevenueView() {
   const [tab,             setTab]             = useState<Tab>('overview')
-  const [range,           setRange]           = useState('30d')
+  const [range,           setRange]           = useState<Range>('30d')
+  const [customFrom,      setCustomFrom]      = useState<string | undefined>()
+  const [customTo,        setCustomTo]        = useState<string | undefined>()
   const [summary,         setSummary]         = useState<RevenueSummary | null>(null)
   const [summaryLoading,  setSummaryLoading]  = useState(true)
   const [summaryError,    setSummaryError]    = useState<string | null>(null)
@@ -989,12 +972,15 @@ export default function RevenueView() {
   const [syncError,       setSyncError]       = useState<string | null>(null)
   const [extras,          setExtras]          = useState<OverviewExtras>(EMPTY_EXTRAS)
 
-  const loadSummary = useCallback(async (r: string) => {
+  const loadSummary = useCallback(async (r: Range, from?: string, to?: string) => {
     setSummary(null)
     setSummaryLoading(true)
     setSummaryError(null)
     try {
-      const res  = await fetch(`/api/revenue/summary?range=${r}`)
+      const p = new URLSearchParams({ range: r })
+      if (r === 'custom' && from) p.set('from', from)
+      if (r === 'custom' && to)   p.set('to', to)
+      const res  = await fetch(`/api/revenue/summary?${p}`)
       const data = await res.json()
       if (!res.ok) {
         setSummaryError(data?.error ?? 'Failed to load summary')
@@ -1033,8 +1019,8 @@ export default function RevenueView() {
     } finally {
       setSyncing(false)
     }
-    await Promise.all([loadSummary(range), loadProducts()])
-  }, [range, loadSummary, loadProducts])
+    await Promise.all([loadSummary(range, customFrom, customTo), loadProducts()])
+  }, [range, customFrom, customTo, loadSummary, loadProducts])
 
   // Load extras: all-time tiers, monthly tiers, expenses, outstanding
   const loadExtras = useCallback(async () => {
@@ -1066,7 +1052,7 @@ export default function RevenueView() {
     } catch { /* non-fatal */ }
   }, [])
 
-  useEffect(() => { loadSummary(range) }, [range, loadSummary])
+  useEffect(() => { loadSummary(range, customFrom, customTo) }, [range, customFrom, customTo, loadSummary])
   useEffect(() => { loadProducts() }, [loadProducts])
   useEffect(() => { loadExtras() }, [loadExtras])
 
@@ -1119,7 +1105,14 @@ export default function RevenueView() {
           loading={summaryLoading}
           error={summaryError}
           range={range}
-          onRangeChange={(r) => { setRange(r); loadSummary(r) }}
+          customFrom={customFrom}
+          customTo={customTo}
+          onRangeChange={(v) => {
+            setRange(v.range)
+            setCustomFrom(v.from)
+            setCustomTo(v.to)
+            loadSummary(v.range, v.from, v.to)
+          }}
           extras={extras}
         />
       )}

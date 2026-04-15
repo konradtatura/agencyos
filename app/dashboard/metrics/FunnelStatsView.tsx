@@ -3,16 +3,9 @@
 import { useState, useEffect } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { FunnelBranchesResponse } from '@/app/api/metrics/funnel-branches/route'
+import DateRangePicker from '@/components/ui/date-range-picker'
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-
-const RANGES = [
-  { value: 'today', label: 'Today'      },
-  { value: '7d',    label: '7D'         },
-  { value: '30d',   label: '30D'        },
-  { value: 'month', label: 'This Month' },
-  { value: 'all',   label: 'All Time'   },
-]
+type Range = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
 
 const MONO = "'JetBrains Mono', 'Fira Code', monospace"
 
@@ -77,14 +70,18 @@ function LoadingSkeleton() {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function FunnelStatsView() {
-  const [range, setRange]     = useState('30d')
-  const [funnelId, setFunnelId] = useState<string>('')
-  const [data, setData]       = useState<FunnelBranchesResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [range,      setRange]      = useState<Range>('30d')
+  const [customFrom, setCustomFrom] = useState<string | undefined>()
+  const [customTo,   setCustomTo]   = useState<string | undefined>()
+  const [funnelId,   setFunnelId]   = useState<string>('')
+  const [data,       setData]       = useState<FunnelBranchesResponse | null>(null)
+  const [loading,    setLoading]    = useState(true)
 
   useEffect(() => {
     setLoading(true)
     const params = new URLSearchParams({ range })
+    if (range === 'custom' && customFrom) params.set('from', customFrom)
+    if (range === 'custom' && customTo)   params.set('to', customTo)
     if (funnelId) params.set('funnel_id', funnelId)
 
     fetch(`/api/metrics/funnel-branches?${params}`)
@@ -95,9 +92,9 @@ export default function FunnelStatsView() {
       })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [range, funnelId])
+  }, [range, customFrom, customTo, funnelId])
 
-  // ── Controls (unchanged) ───────────────────────────────────────────────────
+  // ── Controls ───────────────────────────────────────────────────────────────
 
   const controls = (
     <div className="flex items-center gap-3 mb-6 flex-wrap">
@@ -118,24 +115,14 @@ export default function FunnelStatsView() {
         </select>
       )}
 
-      <div
-        className="flex items-center gap-0.5 rounded-lg p-0.5"
-        style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.06)' }}
-      >
-        {RANGES.map(r => (
-          <button
-            key={r.value}
-            onClick={() => setRange(r.value)}
-            className="text-xs px-3 py-1.5 rounded-md transition-colors"
-            style={{
-              backgroundColor: range === r.value ? '#2563eb' : 'transparent',
-              color: range === r.value ? '#fff' : '#9ca3af',
-            }}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
+      <DateRangePicker
+        value={{ range, from: customFrom, to: customTo }}
+        onChange={(v) => {
+          setRange(v.range as Range)
+          setCustomFrom(v.from)
+          setCustomTo(v.to)
+        }}
+      />
     </div>
   )
 

@@ -8,16 +8,9 @@ import {
 import { AlertTriangle, X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { CrmMetricsResponse, CloserRow, SetterRow } from '@/app/api/metrics/crm/route'
+import DateRangePicker from '@/components/ui/date-range-picker'
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-
-const RANGES = [
-  { value: 'today',  label: 'Today'      },
-  { value: '7d',     label: '7 Days'     },
-  { value: '30d',    label: '30 Days'    },
-  { value: 'month',  label: 'This Month' },
-  { value: 'all',    label: 'All Time'   },
-]
+type Range = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
 
 const METRIC_DEFS = [
   { key: 'dm_to_qualified',     label: 'DM → Qualified',   benchmark: null },
@@ -723,17 +716,22 @@ function TrendCharts({
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function MetricsDashboard() {
-  const [range, setRange] = useState<string>('30d')
-  const [data, setData] = useState<CrmMetricsResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [closerTab, setCloserTab] = useState<'all_time' | 'current_month'>('current_month')
+  const [range, setRange]           = useState<Range>('30d')
+  const [customFrom, setCustomFrom] = useState<string | undefined>()
+  const [customTo,   setCustomTo]   = useState<string | undefined>()
+  const [data, setData]             = useState<CrmMetricsResponse | null>(null)
+  const [loading, setLoading]       = useState(true)
+  const [error, setError]           = useState<string | null>(null)
+  const [closerTab, setCloserTab]   = useState<'all_time' | 'current_month'>('current_month')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/metrics/crm?range=${range}`)
+      const params = new URLSearchParams({ range })
+      if (range === 'custom' && customFrom) params.set('from', customFrom)
+      if (range === 'custom' && customTo)   params.set('to', customTo)
+      const res = await fetch(`/api/metrics/crm?${params}`)
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error ?? `HTTP ${res.status}`)
@@ -745,7 +743,7 @@ export default function MetricsDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [range])
+  }, [range, customFrom, customTo])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -767,23 +765,15 @@ export default function MetricsDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Time range toggle */}
-      <div className="flex gap-1">
-        {RANGES.map(r => (
-          <button
-            key={r.value}
-            onClick={() => setRange(r.value)}
-            className="rounded-lg px-3.5 py-1.5 text-[12.5px] font-medium transition-colors"
-            style={{
-              backgroundColor: range === r.value ? 'rgba(37,99,235,0.15)' : 'rgba(255,255,255,0.04)',
-              color: range === r.value ? '#60a5fa' : '#9ca3af',
-              border: range === r.value ? '1px solid rgba(37,99,235,0.3)' : '1px solid transparent',
-            }}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
+      {/* Time range picker */}
+      <DateRangePicker
+        value={{ range, from: customFrom, to: customTo }}
+        onChange={(v) => {
+          setRange(v.range as Range)
+          setCustomFrom(v.from)
+          setCustomTo(v.to)
+        }}
+      />
 
       {loading && <DashboardSkeleton />}
       {error && (
