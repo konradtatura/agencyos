@@ -13,34 +13,27 @@ import { decrypt } from '@/lib/crypto'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface WhopPayment {
-  id:           string
-  status:       string
-  substatus?:   string | null
-  reason?:      string | null   // "subscription_creation" | "subscription_renewal" | "one_time_payment"
-  type?:        string | null   // may indicate charge type
-  payment_type?: string | null  // may be "recurring" | "one_time"
-  billing_type?: string | null
-  membership_id?: string | null  // non-null = subscription charge
-  membership?: {
-    id?:              string | null
-    renewal_period_type?: string | null   // 'monthly' | 'yearly'
-    plan_id?:         string | null
-  } | null
+  id:             string
+  status:         string
+  substatus?:     string | null
+  // "subscription_create" | "subscription_cycle" | "subscription_update" | "subscription" | "one_time" | "manual"
+  billing_reason?: string | null
   paid_at:    string | null
   created_at: string
-  final_amount?: number | null
-  subtotal?:     number | null
-  currency?:     string | null
+  final_amount?:     number | null
+  subtotal?:         number | null
+  amount_after_fees?: number | null   // actual net payout to creator (after Whop fees)
+  currency?:         string | null
+  membership?: {
+    id?:     string | null
+    status?: string | null
+  } | null
   product?: {
     id:    string
     title: string
   } | null
   plan?: {
-    id:             string
-    billing_type?:  string | null
-    interval?:      string | null
-    renewal_period_duration?: number | null
-    renewal_period_type?:     string | null
+    id: string
   } | null
   user?: {
     email: string | null
@@ -264,21 +257,18 @@ export async function POST() {
 
   // Dump first payment raw to understand Whop's actual field names
   if (paid.length > 0) {
-    const sample = paid[0] as Record<string, unknown>
-    console.log('[whop/sync] SAMPLE PAYMENT KEYS:', Object.keys(sample).join(', '))
-    console.log('[whop/sync] SAMPLE PAYMENT:', JSON.stringify({
-      id:           sample.id,
-      status:       sample.status,
-      substatus:    sample.substatus,
-      reason:       sample.reason,
-      type:         sample.type,
-      payment_type: sample.payment_type,
-      billing_type: sample.billing_type,
-      membership_id: sample.membership_id,
-      membership:   sample.membership,
-      plan:         sample.plan,
-      final_amount: sample.final_amount,
-      subtotal:     sample.subtotal,
+    const sample = paid[0] as unknown as Record<string, unknown>
+    console.log('[whop/sync] SAMPLE KEYS:', Object.keys(sample).join(', '))
+    console.log('[whop/sync] SAMPLE:', JSON.stringify({
+      id:               sample.id,
+      status:           sample.status,
+      substatus:        sample.substatus,
+      billing_reason:   sample.billing_reason,
+      amount_after_fees: sample.amount_after_fees,
+      final_amount:     sample.final_amount,
+      subtotal:         sample.subtotal,
+      membership:       sample.membership,
+      plan:             sample.plan,
     }, null, 2))
   }
 
@@ -288,21 +278,16 @@ export async function POST() {
     const amount   = p.final_amount ?? p.subtotal ?? 0
     const saleDate = p.paid_at ? p.paid_at.slice(0, 10) : p.created_at.slice(0, 10)
     const currency = p.currency?.toUpperCase() ?? null
-    // Detect recurring via every available Whop API signal:
-    const reason       = (p.reason ?? '').toLowerCase()
-    const pType        = (p.payment_type ?? p.type ?? '').toLowerCase()
-    const planBilling  = p.plan?.billing_type ?? p.billing_type ?? ''
-    const planInterval = p.plan?.interval ?? p.plan?.renewal_period_type ?? p.membership?.renewal_period_type ?? ''
-    const hasMembership = !!(p.membership_id || p.membership?.id)
 
-    const isRecurring =
-      hasMembership ||                              // membership_id present = subscription charge
-      reason.includes('subscription') ||            // reason field (Whop UI label in snake_case)
-      pType === 'recurring' ||                      // explicit payment_type / type
-      planBilling === 'recurring' ||                // plan.billing_type
-      (planInterval !== '' && planInterval !== 'one_time')  // plan/membership interval
+    // billing_reason is the authoritative Whop field:
+    // "subscription_create" | "subscription_cycle" | "subscription_update" | "subscription" → recurring
+    // "one_time" | "manual" | null → upfront
+    const billingReason = (p.billing_reason ?? '').toLowerCase()
+    const hasMembership = !!(p.membership?.id)
+    const isRecurring   = billingReason.startsWith('subscription') || hasMembership
 
-    if (isRecurring) console.log(`[whop/sync] recurring: id=${p.id} reason="${p.reason}" planBilling="${planBilling}" planInterval="${planInterval}"`)
+    console.log(`[whop/sync] id=${p.id} billing_reason="${p.billing_reason}" membership="${p.membership?.id ?? 'none'}" → ${isRecurring ? 'RECURRING' : 'upfront'}`)
+
     const productId = await resolveProductId(p.product?.id, p.product?.title, amount, isRecurring)
 
     const { error } = await admin.from('sales').upsert(
