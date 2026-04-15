@@ -21,12 +21,15 @@ interface WhopPayment {
   final_amount?: number | null
   subtotal?:     number | null
   currency?:     string | null
+  billing_type?: string | null   // 'one_time' | 'recurring' when present
   product?: {
     id:    string
     title: string
   } | null
   plan?: {
-    id: string
+    id:             string
+    billing_type?:  string | null   // 'one_time' | 'recurring'
+    interval?:      string | null   // 'monthly' | 'yearly' | etc.
   } | null
   user?: {
     email: string | null
@@ -131,10 +134,13 @@ export async function POST() {
   const apiKey    = decryptKey(profile.whop_api_key_enc)
   const companyId = profile.whop_company_id as string
 
-  // Fetch payments and filter to paid only
+  // Fetch payments and filter to paid/active (covers one-time + subscription renewals)
   const payments = await fetchAllPayments(apiKey, companyId)
   const paid = payments.filter(
-    (p) => p.status === 'paid' || p.substatus === 'succeeded',
+    (p) =>
+      p.status === 'paid' ||
+      p.substatus === 'succeeded' ||
+      p.substatus === 'active',   // subscription recurring charges
   )
 
   // ── Load existing products for matching ───────────────────────────────────
@@ -163,6 +169,7 @@ export async function POST() {
     whopProductId: string | undefined,
     title:         string | undefined,
     amount:        number,
+    isRecurring:   boolean = false,
   ): Promise<string | null> {
     if (!whopProductId && !title) return null
 
@@ -202,7 +209,7 @@ export async function POST() {
       creator_id:      creatorId,
       name:            title.trim(),
       tier,
-      payment_type:    'onetime',
+      payment_type:    isRecurring ? 'recurring' : 'onetime',
       price:           amount,
       whop_product_id: whopProductId ?? null,
       active:          true,
@@ -250,7 +257,14 @@ export async function POST() {
     const amount   = p.final_amount ?? p.subtotal ?? 0
     const saleDate = p.paid_at ? p.paid_at.slice(0, 10) : p.created_at.slice(0, 10)
     const currency = p.currency?.toUpperCase() ?? null
-    const productId = await resolveProductId(p.product?.id, p.product?.title, amount)
+    // Detect recurring: plan with recurring billing_type, or monthly/yearly interval
+    const planBilling = p.plan?.billing_type ?? p.billing_type
+    const planInterval = p.plan?.interval
+    const isRecurring =
+      planBilling === 'recurring' ||
+      (planInterval != null && planInterval !== 'one_time' && planInterval !== '')
+
+    const productId = await resolveProductId(p.product?.id, p.product?.title, amount, isRecurring)
 
     const { error } = await admin.from('sales').upsert(
       {
@@ -261,7 +275,7 @@ export async function POST() {
         amount,
         currency,
         platform:      'whop',
-        payment_type:  'upfront',
+        payment_type:  isRecurring ? 'recurring' : 'upfront',
         sale_date:     saleDate,
         whop_sale_id:  p.id,
       },
