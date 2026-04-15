@@ -95,6 +95,18 @@ async function fetchAllPayments(
   return all
 }
 
+// ── Tier inference by amount (fallback when no product match) ─────────────────
+// These are soft defaults — the creator can always edit the product's tier.
+function inferTier(amount: number): 'ht' | 'mt' | 'lt' {
+  if (amount >= 3000) return 'ht'
+  if (amount >= 500)  return 'mt'
+  return 'lt'
+}
+
+function normaliseName(s: string): string {
+  return s.toLowerCase().trim()
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function POST() {
@@ -125,10 +137,96 @@ export async function POST() {
     (p) => p.status === 'paid' || p.substatus === 'succeeded',
   )
 
-  // Build email → lead_id map
-  const emails = [...new Set(
+  // ── Load existing products for matching ───────────────────────────────────
+  const { data: existingProducts } = await admin
+    .from('products')
+    .select('id, name, tier, whop_product_id')
+    .eq('creator_id', creatorId)
+
+  // Two lookup maps: by Whop product ID and by normalised name
+  const byWhopId   = new Map<string, { id: string; tier: string }>()
+  const byName     = new Map<string, { id: string; tier: string }>()
+  for (const prod of existingProducts ?? []) {
+    if (prod.whop_product_id) byWhopId.set(prod.whop_product_id, prod)
+    byName.set(normaliseName(prod.name), prod)
+  }
+
+  // Cache of Whop product ID → our product ID (populated as we create new ones)
+  const whopProductToId = new Map<string, string>()
+
+  // Pre-seed from existing products
+  for (const prod of existingProducts ?? []) {
+    if (prod.whop_product_id) whopProductToId.set(prod.whop_product_id, prod.id)
+  }
+
+  async function resolveProductId(
+    whopProductId: string | undefined,
+    title:         string | undefined,
+    amount:        number,
+  ): Promise<string | null> {
+    if (!whopProductId && !title) return null
+
+    // 1. Already resolved this Whop product in this sync run
+    if (whopProductId && whopProductToId.has(whopProductId)) {
+      return whopProductToId.get(whopProductId)!
+    }
+
+    // 2. Match by Whop product ID
+    if (whopProductId && byWhopId.has(whopProductId)) {
+      const prod = byWhopId.get(whopProductId)!
+      whopProductToId.set(whopProductId, prod.id)
+      return prod.id
+    }
+
+    // 3. Match by normalised product name
+    if (title) {
+      const key = normaliseName(title)
+      if (byName.has(key)) {
+        const prod = byName.get(key)!
+        // Back-fill whop_product_id on the existing product if it was missing
+        if (whopProductId && !byWhopId.has(whopProductId)) {
+          await admin.from('products')
+            .update({ whop_product_id: whopProductId })
+            .eq('id', prod.id)
+          byWhopId.set(whopProductId, prod)
+        }
+        if (whopProductId) whopProductToId.set(whopProductId, prod.id)
+        return prod.id
+      }
+    }
+
+    // 4. Auto-create a new product with inferred tier
+    if (!title) return null
+    const tier = inferTier(amount)
+    const { data: newProd, error } = await admin.from('products').insert({
+      creator_id:      creatorId,
+      name:            title.trim(),
+      tier,
+      payment_type:    'onetime',
+      price:           amount,
+      whop_product_id: whopProductId ?? null,
+      active:          true,
+    }).select('id').single()
+
+    if (error || !newProd) {
+      console.error('[whop/sync] failed to create product:', title, error?.message)
+      return null
+    }
+
+    console.log(`[whop/sync] auto-created product "${title}" → ${tier}`)
+    const entry = { id: newProd.id, tier }
+    byName.set(normaliseName(title), entry)
+    if (whopProductId) {
+      byWhopId.set(whopProductId, entry)
+      whopProductToId.set(whopProductId, newProd.id)
+    }
+    return newProd.id
+  }
+
+  // ── Build email → lead_id map ─────────────────────────────────────────────
+  const emails = Array.from(new Set(
     paid.map((p) => p.user?.email).filter(Boolean) as string[],
-  )]
+  ))
 
   const { data: matchedLeads } = emails.length
     ? await admin
@@ -143,20 +241,22 @@ export async function POST() {
     if (lead.email) emailToLeadId.set(lead.email as string, lead.id as string)
   }
 
-  // Upsert sales
+  // ── Upsert sales ──────────────────────────────────────────────────────────
   let synced = 0
 
   for (const p of paid) {
     const email    = p.user?.email ?? null
     const leadId   = email ? (emailToLeadId.get(email) ?? null) : null
-    const amount   = p.final_amount ?? p.subtotal ?? 0  // Whop returns full currency units, not cents
+    const amount   = p.final_amount ?? p.subtotal ?? 0
     const saleDate = p.paid_at ? p.paid_at.slice(0, 10) : p.created_at.slice(0, 10)
     const currency = p.currency?.toUpperCase() ?? null
+    const productId = await resolveProductId(p.product?.id, p.product?.title, amount)
 
     const { error } = await admin.from('sales').upsert(
       {
         creator_id:    creatorId,
         lead_id:       leadId,
+        product_id:    productId,
         product_name:  p.product?.title ?? null,
         amount,
         currency,

@@ -76,10 +76,10 @@ export async function GET(req: Request) {
   const mrr    = rows.filter((r) => r.payment_type === 'recurring').reduce((s, r) => s + Number(r.amount), 0)
   const newMrr = mrr  // all recurring in period considered "new" for now
 
-  // By tier
+  // By tier — fall back to 'lt' so unclassified sales always appear somewhere
   const tierMap = new Map<string, { total: number; count: number }>()
   for (const r of rows) {
-    const tier = r.product?.tier ?? 'unknown'
+    const tier = r.product?.tier ?? 'lt'
     const cur  = tierMap.get(tier) ?? { total: 0, count: 0 }
     tierMap.set(tier, { total: cur.total + Number(r.amount), count: cur.count + 1 })
   }
