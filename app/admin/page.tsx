@@ -1,22 +1,18 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isTokenExpired } from '@/lib/instagram/token'
-import { AlertTriangle, TrendingUp, DollarSign, Phone, Target, Users, Calendar } from 'lucide-react'
+import { DollarSign, Phone, Target, TrendingUp, Users, Calendar, CreditCard, MessageSquare } from 'lucide-react'
 import Link from 'next/link'
-import ImpersonateButton from './impersonate-button'
+import AlertsStrip, { type AdminAlert } from './alerts-strip'
+import CreatorGrid, {
+  type SerializedCreator,
+  type CreatorMetrics,
+  type HealthScore,
+  type OutstandingData,
+} from './creator-grid'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type IgAccount = {
-  username:        string | null
-  followers_count: number | null
-  updated_at:      string
-}
-
-type Integration = {
-  platform:   string
-  status:     string
-  expires_at: string | null
-}
+type Integration = { platform: string; status: string; expires_at: string | null }
 
 type CreatorRow = {
   id:                  string
@@ -27,273 +23,66 @@ type CreatorRow = {
   created_at:          string
   users:               { email: string; full_name: string | null } | null
   integrations:        Integration[] | null
-  instagram_accounts:  IgAccount | null
-}
-
-type Alert = {
-  creatorId:   string
-  creatorName: string
-  issue:       string
-  severity:    'red' | 'amber'
+  instagram_accounts:  { username: string | null; followers_count: number | null; updated_at: string } | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const AVATAR_PALETTE = [
-  { bg: 'rgba(37,99,235,0.2)',   text: '#60a5fa' },
-  { bg: 'rgba(139,92,246,0.2)', text: '#a78bfa' },
-  { bg: 'rgba(16,185,129,0.2)', text: '#34d399' },
-  { bg: 'rgba(245,158,11,0.2)', text: '#fbbf24' },
-  { bg: 'rgba(236,72,153,0.2)', text: '#f472b6' },
-]
-
-function avatarColors(seed: string) {
-  return AVATAR_PALETTE[seed.charCodeAt(0) % AVATAR_PALETTE.length]
-}
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  return parts.length >= 2
-    ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-    : name.slice(0, 2).toUpperCase()
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function fmtFollowers(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 10_000)    return `${(n / 1_000).toFixed(1)}K`
-  if (n >= 1_000)     return n.toLocaleString()
-  return String(n)
-}
-
 function fmtCurrency(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000)     return `$${(n / 1_000).toFixed(1)}K`
-  return `$${n.toLocaleString()}`
-}
-
-function relativeTime(iso: string): string {
-  const diffMs  = Date.now() - new Date(iso).getTime()
-  const diffMin = Math.floor(diffMs / 60_000)
-  if (diffMin < 60)  return `${diffMin}m ago`
-  const diffHr = Math.floor(diffMin / 60)
-  if (diffHr  < 24)  return `${diffHr}h ago`
-  return `${Math.floor(diffHr / 24)}d ago`
+  return `$${Math.round(n).toLocaleString()}`
 }
 
 function getIgState(integrations: Integration[] | null): 'connected' | 'expiring' | 'disconnected' {
-  const ig = integrations?.find((i) => i.platform === 'instagram' && i.status === 'active')
+  const ig = integrations?.find(i => i.platform === 'instagram' && i.status === 'active')
   if (!ig) return 'disconnected'
   if (isTokenExpired(ig.expires_at)) return 'expiring'
   return 'connected'
 }
 
+function wowDelta(curr: number, prev: number): { pct: number; up: boolean } | null {
+  if (prev === 0) return null
+  const pct = Math.round(((curr - prev) / prev) * 100)
+  return { pct: Math.abs(pct), up: curr >= prev }
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function StatPill({
+function RollupChip({
   icon: Icon,
   label,
   value,
-  color = '#60a5fa',
+  color,
+  delta,
 }: {
   icon: React.ComponentType<{ className?: string; color?: string }>
   label: string
   value: string | number
-  color?: string
+  color: string
+  delta?: { pct: number; up: boolean } | null
 }) {
   return (
     <div
-      className="flex items-center gap-3 rounded-xl px-5 py-4 flex-1"
+      className="flex items-center gap-3 rounded-xl px-4 py-3.5 flex-1 min-w-[140px]"
       style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}
     >
-      <div className="rounded-lg p-2" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
+      <div className="rounded-lg p-2 shrink-0" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
         <Icon className="h-4 w-4" color={color} />
       </div>
-      <div>
-        <p className="text-[11px] font-medium text-[#6b7280]">{label}</p>
-        <p className="font-mono text-[18px] font-bold" style={{ color }}>{value}</p>
-      </div>
-    </div>
-  )
-}
-
-function RoleBadge({ label, style }: { label: string; style: React.CSSProperties }) {
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-      style={style}
-    >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: (style.color as string) }} />
-      {label}
-    </span>
-  )
-}
-
-function HealthDot({ issues }: { issues: number }) {
-  const color = issues === 0 ? '#10b981' : issues === 1 ? '#f59e0b' : '#ef4444'
-  const title = issues === 0 ? 'Healthy' : issues === 1 ? '1 issue' : `${issues} issues`
-  return (
-    <div title={title} className="flex items-center gap-1.5">
-      <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
-      <span className="text-[11px]" style={{ color }}>{title}</span>
-    </div>
-  )
-}
-
-// ── Creator card ──────────────────────────────────────────────────────────────
-
-function CreatorCard({
-  creator,
-  metrics,
-}: {
-  creator: CreatorRow
-  metrics: { mrr: number; close_rate: number | null; active_leads: number; last_lead_at: string | null }
-}) {
-  const colors   = avatarColors(creator.name)
-  const initials = getInitials(creator.name)
-  const email    = creator.users?.email ?? '—'
-  const igState  = getIgState(creator.integrations)
-
-  const igAccount = Array.isArray(creator.instagram_accounts)
-    ? ((creator.instagram_accounts as IgAccount[])[0] ?? null)
-    : creator.instagram_accounts
-
-  // Count issues for health dot
-  let issues = 0
-  if (igState === 'disconnected') issues++
-  if (!creator.ghl_location_id)   issues++
-  if (metrics.close_rate !== null && metrics.close_rate < 20) issues++
-  if (metrics.last_lead_at) {
-    const daysSince = (Date.now() - new Date(metrics.last_lead_at).getTime()) / 86_400_000
-    if (daysSince > 7) issues++
-  } else {
-    issues++ // no leads ever
-  }
-
-  const IG_STYLES = {
-    connected:    { bg: 'rgba(16,185,129,0.12)',  color: '#34d399', label: 'IG Connected'  },
-    expiring:     { bg: 'rgba(245,158,11,0.12)',  color: '#fbbf24', label: 'IG Expiring'   },
-    disconnected: { bg: 'rgba(239,68,68,0.12)',   color: '#f87171', label: 'No IG'         },
-  }
-  const igStyle = IG_STYLES[igState]
-
-  return (
-    <div
-      className="flex flex-col rounded-xl p-5"
-      style={{
-        backgroundColor: '#111827',
-        border: issues >= 2
-          ? '1px solid rgba(239,68,68,0.2)'
-          : issues === 1
-          ? '1px solid rgba(245,158,11,0.2)'
-          : '1px solid rgba(255,255,255,0.06)',
-      }}
-    >
-      {/* Header row */}
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-            style={{ backgroundColor: colors.bg, color: colors.text }}
-          >
-            {initials}
-          </div>
-          <div>
-            <p className="text-[14px] font-semibold text-[#f9fafb]">{creator.name}</p>
-            {creator.niche && (
-              <span
-                className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium"
-                style={{ backgroundColor: 'rgba(37,99,235,0.1)', color: '#60a5fa' }}
-              >
-                {creator.niche}
-              </span>
-            )}
-          </div>
-        </div>
-        <HealthDot issues={issues} />
-      </div>
-
-      {/* Email + date */}
-      <p className="mb-0.5 text-[12px] text-[#9ca3af]">{email}</p>
-      <p className="mb-3 text-[11px] text-[#4b5563]">Added {formatDate(creator.created_at)}</p>
-
-      {/* Status badges */}
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        <RoleBadge
-          label={creator.onboarding_complete ? 'Active' : 'Pending Setup'}
-          style={creator.onboarding_complete
-            ? { backgroundColor: 'rgba(16,185,129,0.12)', color: '#34d399' }
-            : { backgroundColor: 'rgba(245,158,11,0.12)', color: '#fbbf24' }
-          }
-        />
-        <RoleBadge
-          label={igStyle.label}
-          style={{ backgroundColor: igStyle.bg, color: igStyle.color }}
-        />
-        <RoleBadge
-          label={creator.ghl_location_id ? 'GHL Connected' : 'No GHL'}
-          style={creator.ghl_location_id
-            ? { backgroundColor: 'rgba(16,185,129,0.12)', color: '#34d399' }
-            : { backgroundColor: 'rgba(107,114,128,0.1)', color: '#6b7280' }
-          }
-        />
-      </div>
-
-      {/* IG followers */}
-      {igAccount && igState !== 'disconnected' && (
-        <div
-          className="mb-3 flex items-center gap-3 rounded-lg px-3 py-2"
-          style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke="#6b7280" strokeWidth="1.75" />
-            <circle cx="12" cy="12" r="4.5" stroke="#6b7280" strokeWidth="1.75" />
-            <circle cx="17.5" cy="6.5" r="1" fill="#6b7280" />
-          </svg>
-          <span className="text-[11px] text-[#9ca3af]">@{igAccount.username}</span>
-          {igAccount.followers_count != null && (
-            <>
-              <span className="text-[#374151]">·</span>
-              <span className="font-mono text-[11px] font-semibold text-[#d1d5db]">
-                {fmtFollowers(igAccount.followers_count)}
-              </span>
-            </>
+      <div className="min-w-0">
+        <p className="text-[10.5px] font-medium text-[#6b7280] truncate">{label}</p>
+        <div className="flex items-baseline gap-2">
+          <p className="font-mono text-[17px] font-bold leading-tight" style={{ color }}>{value}</p>
+          {delta && (
+            <span
+              className="text-[10px] font-semibold"
+              style={{ color: delta.up ? '#34d399' : '#f87171' }}
+            >
+              {delta.up ? '↑' : '↓'}{delta.pct}%
+            </span>
           )}
-          <span className="ml-auto text-[10px] text-[#4b5563]">{relativeTime(igAccount.updated_at)}</span>
         </div>
-      )}
-
-      {/* Metric pills */}
-      <div className="mb-4 grid grid-cols-3 gap-2">
-        {[
-          { label: 'MRR',          value: fmtCurrency(metrics.mrr),              color: '#10b981' },
-          { label: 'Close Rate',   value: metrics.close_rate !== null ? `${metrics.close_rate}%` : '—', color: metrics.close_rate !== null && metrics.close_rate < 20 ? '#ef4444' : '#f9fafb' },
-          { label: 'Active Leads', value: metrics.active_leads,                  color: '#f9fafb' },
-        ].map((m) => (
-          <div
-            key={m.label}
-            className="rounded-lg px-2 py-2 text-center"
-            style={{ backgroundColor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}
-          >
-            <p className="font-mono text-[14px] font-bold" style={{ color: m.color }}>{m.value}</p>
-            <p className="text-[10px] text-[#4b5563]">{m.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Action buttons */}
-      <div className="mt-auto flex gap-2">
-        <ImpersonateButton creatorId={creator.id} />
-        <Link
-          href={`/admin/creators`}
-          className="flex items-center justify-center rounded-lg px-3 py-2 text-[12px] font-medium text-[#9ca3af] transition-colors hover:text-[#f9fafb]"
-          style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
-        >
-          Edit
-        </Link>
       </div>
     </div>
   )
@@ -304,15 +93,30 @@ function CreatorCard({
 export default async function AdminDashboardPage() {
   const admin = createAdminClient()
 
-  const now      = new Date()
-  const mtdStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
-  const today    = now.toISOString().slice(0, 10)
-  const since7d  = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const now         = new Date()
+  const mtdStart    = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+  const today       = now.toISOString().slice(0, 10)
+  const curr7dStart = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
+  const prev7dStart = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10)
+  const overdue7d   = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10)
 
   const DEAD_STAGES = ['dead', 'closed_lost', 'disqualified']
 
   // ── Parallel data fetch ───────────────────────────────────────────────────
-  const [creatorsRes, salesRes, leadsRes, historyRes] = await Promise.all([
+  const [
+    creatorsRes,
+    salesRes,
+    leadsRes,
+    historyMtdRes,
+    prev7dSalesRes,
+    curr7dHistRes,
+    prev7dHistRes,
+    instalOutstandingRes,
+    instalOverdueRes,
+    instalDueTodayRes,
+    dmsRes,
+  ] = await Promise.all([
+    // Creators with relations
     admin
       .from('creator_profiles')
       .select(`
@@ -323,245 +127,408 @@ export default async function AdminDashboardPage() {
       `)
       .order('created_at', { ascending: false }),
 
+    // Sales MTD (with sale_date for curr-7d slice)
     admin
       .from('sales')
-      .select('creator_id, amount, payment_type')
+      .select('creator_id, amount, payment_type, sale_date')
       .gte('sale_date', mtdStart)
       .lte('sale_date', today),
 
+    // All leads
     admin
       .from('leads')
       .select('creator_id, stage, created_at')
       .order('created_at', { ascending: false }),
 
+    // Booked calls MTD (for rollup count)
     admin
       .from('lead_stage_history')
       .select('to_stage')
       .eq('to_stage', 'call_booked')
       .gte('changed_at', `${mtdStart}T00:00:00Z`),
+
+    // Sales prev 7d (for WoW delta)
+    admin
+      .from('sales')
+      .select('amount')
+      .gte('sale_date', prev7dStart)
+      .lt('sale_date', curr7dStart),
+
+    // Booked calls curr 7d (for WoW delta)
+    admin
+      .from('lead_stage_history')
+      .select('to_stage')
+      .eq('to_stage', 'call_booked')
+      .gte('changed_at', `${curr7dStart}T00:00:00Z`),
+
+    // Booked calls prev 7d (for WoW delta)
+    admin
+      .from('lead_stage_history')
+      .select('to_stage')
+      .eq('to_stage', 'call_booked')
+      .gte('changed_at', `${prev7dStart}T00:00:00Z`)
+      .lt('changed_at', `${curr7dStart}T00:00:00Z`),
+
+    // Outstanding instalments per creator (non-paid, due within 30d)
+    admin
+      .from('payment_instalments')
+      .select('creator_id, amount, status, due_date')
+      .in('status', ['pending', 'overdue'])
+      .lte('due_date', new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10)),
+
+    // Overdue 7+ days (for red alert)
+    admin
+      .from('payment_instalments')
+      .select('creator_id, amount, due_date')
+      .eq('status', 'overdue')
+      .lt('due_date', overdue7d),
+
+    // Due today (for amber alert)
+    admin
+      .from('payment_instalments')
+      .select('creator_id, amount')
+      .eq('status', 'pending')
+      .eq('due_date', today),
+
+    // DMs MTD (active conversations)
+    admin
+      .from('dm_conversations')
+      .select('creator_id, last_message_at')
+      .gte('last_message_at', `${mtdStart}T00:00:00Z`),
   ])
 
-  const creators = (creatorsRes.data ?? []) as unknown as CreatorRow[]
-  const sales    = salesRes.data   ?? []
-  const leads    = leadsRes.data   ?? []
-  const history  = historyRes.data ?? []
+  const creators    = (creatorsRes.data ?? []) as unknown as CreatorRow[]
+  const sales       = salesRes.data   ?? []
+  const leads       = leadsRes.data   ?? []
+  const historyMtd  = historyMtdRes.data  ?? []
+  const prev7dSales = prev7dSalesRes.data ?? []
+  const curr7dHist  = curr7dHistRes.data  ?? []
+  const prev7dHist  = prev7dHistRes.data  ?? []
+  const instalOut   = instalOutstandingRes.data ?? []
+  const instalOver  = instalOverdueRes.data    ?? []
+  const instalToday = instalDueTodayRes.data   ?? []
+  const dms         = dmsRes.data ?? []
 
-  // ── Agency rollup ─────────────────────────────────────────────────────────
+  // ── Agency rollup metrics ─────────────────────────────────────────────────
   const total_mrr = sales
-    .filter((s) => s.payment_type === 'recurring')
-    .reduce((sum, s) => sum + Number(s.amount), 0)
+    .filter(s => s.payment_type === 'recurring')
+    .reduce((s, r) => s + Number(r.amount), 0)
 
-  const cash_collected_mtd = sales
-    .reduce((sum, s) => sum + Number(s.amount), 0)
+  const cash_collected_mtd = sales.reduce((s, r) => s + Number(r.amount), 0)
 
-  const active_leads_count = leads.filter((l) => !DEAD_STAGES.includes(l.stage)).length
+  // WoW for cash: curr 7d vs prev 7d
+  const cash_curr7d = sales
+    .filter(s => s.sale_date >= curr7dStart)
+    .reduce((s, r) => s + Number(r.amount), 0)
+  const cash_prev7d = prev7dSales.reduce((s, r) => s + Number(r.amount), 0)
+  const cashWow     = wowDelta(cash_curr7d, cash_prev7d)
 
-  const booked_calls_mtd = history.length
+  // Booked calls MTD
+  const booked_calls_mtd = historyMtd.length
+  const bookedWow        = wowDelta(curr7dHist.length, prev7dHist.length)
 
-  // Per-creator close rates for avg
+  // Active leads
+  const active_leads_count = leads.filter(l => !DEAD_STAGES.includes(l.stage)).length
+
+  // DMs MTD
+  const dms_mtd = dms.length
+
+  // Per-creator lead stats
   const perCreatorLeads: Record<string, { showed: number; closed_won: number; booked: number }> = {}
   for (const l of leads) {
     const id = l.creator_id as string
     if (!perCreatorLeads[id]) perCreatorLeads[id] = { showed: 0, closed_won: 0, booked: 0 }
     if (l.stage === 'showed')     perCreatorLeads[id].showed++
     if (l.stage === 'closed_won') perCreatorLeads[id].closed_won++
-    if (['call_booked','showed','closed_won','closed_lost','no_show'].includes(l.stage))
+    if (['call_booked','showed','closed_won','closed_lost','follow_up'].includes(l.stage))
       perCreatorLeads[id].booked++
   }
 
   const closeRates = Object.values(perCreatorLeads)
-    .map((c) => c.showed > 0 ? (c.closed_won / c.showed) * 100 : null)
-    .filter((r): r is number => r !== null)
+    .filter(c => c.showed >= 3)
+    .map(c => (c.closed_won / c.showed) * 100)
 
   const showRates = Object.values(perCreatorLeads)
-    .map((c) => c.booked > 0 ? ((c.showed + c.closed_won) / c.booked) * 100 : null)
-    .filter((r): r is number => r !== null)
+    .filter(c => c.booked >= 3)
+    .map(c => ((c.showed + c.closed_won) / c.booked) * 100)
 
   const avg_close_rate = closeRates.length > 0
     ? Math.round(closeRates.reduce((a, b) => a + b, 0) / closeRates.length * 10) / 10 : 0
   const avg_show_rate  = showRates.length > 0
     ? Math.round(showRates.reduce((a, b) => a + b, 0) / showRates.length * 10) / 10  : 0
 
+  // Total outstanding instalments (30d window)
+  const total_outstanding = instalOut.reduce((s, r) => s + Number(r.amount), 0)
+
+  // ── Outstanding per creator ───────────────────────────────────────────────
+  const outstandingMap: Record<string, OutstandingData> = {}
+  for (const row of instalOut) {
+    const cid = row.creator_id as string
+    if (!outstandingMap[cid]) outstandingMap[cid] = { total: 0, has_overdue: false }
+    outstandingMap[cid].total += Number(row.amount)
+    if (row.status === 'overdue') outstandingMap[cid].has_overdue = true
+  }
+
   // ── Per-creator metrics ───────────────────────────────────────────────────
-  const creatorMetrics = new Map<string, {
-    mrr:          number
-    close_rate:   number | null
-    active_leads: number
-    last_lead_at: string | null
-  }>()
-
+  const metricsMap: Record<string, CreatorMetrics> = {}
   for (const creator of creators) {
-    const cSales = sales.filter((s) => s.creator_id === creator.id)
-    const cLeads = leads.filter((l) => l.creator_id === creator.id)
+    const cSales  = sales.filter(s => s.creator_id === creator.id)
+    const cLeads  = leads.filter(l => l.creator_id === creator.id)
+    const cStats  = perCreatorLeads[creator.id] ?? { showed: 0, closed_won: 0, booked: 0 }
 
-    const mrr = cSales
-      .filter((s) => s.payment_type === 'recurring')
-      .reduce((sum, s) => sum + Number(s.amount), 0)
+    const mrr = cSales.filter(s => s.payment_type === 'recurring').reduce((s, r) => s + Number(r.amount), 0)
 
-    const cStats = perCreatorLeads[creator.id] ?? { showed: 0, closed_won: 0, booked: 0 }
-    const close_rate = cStats.showed > 0
+    const close_rate = cStats.showed >= 3
       ? Math.round((cStats.closed_won / cStats.showed) * 100 * 10) / 10
       : null
 
-    const active_leads = cLeads.filter((l) => !DEAD_STAGES.includes(l.stage)).length
+    const show_rate = cStats.booked >= 3
+      ? Math.round(((cStats.showed + cStats.closed_won) / cStats.booked) * 100 * 10) / 10
+      : null
 
-    const recentLeads = cLeads.filter((l) => !DEAD_STAGES.includes(l.stage))
-    const last_lead_at = recentLeads.length > 0 ? recentLeads[0].created_at as string : null
+    const active_leads = cLeads.filter(l => !DEAD_STAGES.includes(l.stage)).length
+    const activeLeads  = cLeads.filter(l => !DEAD_STAGES.includes(l.stage))
+    const last_lead_at = activeLeads.length > 0 ? activeLeads[0].created_at as string : null
 
-    creatorMetrics.set(creator.id, { mrr, close_rate, active_leads, last_lead_at })
+    metricsMap[creator.id] = { mrr, close_rate, show_rate, active_leads, last_lead_at }
   }
 
   // ── Alerts ────────────────────────────────────────────────────────────────
-  const alerts: Alert[] = []
+  const alerts: AdminAlert[] = []
+
+  // Build overdue-7d and due-today lookup maps
+  const overduePerCreator: Record<string, { count: number; oldestDue: string }> = {}
+  for (const row of instalOver) {
+    const cid = row.creator_id as string
+    if (!overduePerCreator[cid]) overduePerCreator[cid] = { count: 0, oldestDue: row.due_date }
+    overduePerCreator[cid].count++
+    if (row.due_date < overduePerCreator[cid].oldestDue) overduePerCreator[cid].oldestDue = row.due_date
+  }
+  const dueTodayPerCreator: Record<string, number> = {}
+  for (const row of instalToday) {
+    const cid = row.creator_id as string
+    dueTodayPerCreator[cid] = (dueTodayPerCreator[cid] ?? 0) + 1
+  }
 
   for (const creator of creators) {
     const igState = getIgState(creator.integrations)
-    const metrics = creatorMetrics.get(creator.id)!
+    const metrics = metricsMap[creator.id]
 
+    // ── Red alerts ──
     if (igState === 'disconnected') {
-      alerts.push({ creatorId: creator.id, creatorName: creator.name, issue: 'Instagram not connected', severity: 'red' })
-    } else if (igState === 'expiring') {
-      alerts.push({ creatorId: creator.id, creatorName: creator.name, issue: 'Instagram token expiring', severity: 'amber' })
+      alerts.push({
+        id:          `${creator.id}:ig_disconnected`,
+        creatorId:   creator.id,
+        creatorName: creator.name,
+        issue:       'Instagram not connected — DM inbox and content sync are offline',
+        severity:    'red',
+      })
+    }
+
+    if (metrics.close_rate !== null && metrics.close_rate < 20) {
+      alerts.push({
+        id:          `${creator.id}:low_close_rate`,
+        creatorId:   creator.id,
+        creatorName: creator.name,
+        issue:       `Close rate is ${metrics.close_rate}% — below 20% threshold`,
+        severity:    'red',
+        daysLabel:   'This month',
+      })
+    }
+
+    if (metrics.show_rate !== null && metrics.show_rate < 40) {
+      alerts.push({
+        id:          `${creator.id}:low_show_rate`,
+        creatorId:   creator.id,
+        creatorName: creator.name,
+        issue:       `Show rate is ${metrics.show_rate}% — below 40% threshold`,
+        severity:    'red',
+        daysLabel:   'This month',
+      })
+    }
+
+    if (overduePerCreator[creator.id]) {
+      const o = overduePerCreator[creator.id]
+      const daysPast = Math.floor((Date.now() - new Date(o.oldestDue + 'T00:00:00Z').getTime()) / 86_400_000)
+      alerts.push({
+        id:          `${creator.id}:overdue_instalment`,
+        creatorId:   creator.id,
+        creatorName: creator.name,
+        issue:       `${o.count} payment instalment${o.count !== 1 ? 's' : ''} overdue — outstanding collection needed`,
+        severity:    'red',
+        daysLabel:   `${daysPast}d overdue`,
+      })
+    }
+
+    // ── Amber alerts ──
+    if (igState === 'expiring') {
+      alerts.push({
+        id:          `${creator.id}:ig_expiring`,
+        creatorId:   creator.id,
+        creatorName: creator.name,
+        issue:       'Instagram token expiring soon — re-auth before DMs go offline',
+        severity:    'amber',
+      })
     }
 
     if (!creator.ghl_location_id) {
-      alerts.push({ creatorId: creator.id, creatorName: creator.name, issue: 'GHL not configured', severity: 'amber' })
+      alerts.push({
+        id:          `${creator.id}:no_ghl`,
+        creatorId:   creator.id,
+        creatorName: creator.name,
+        issue:       'GoHighLevel not configured — call booking integration inactive',
+        severity:    'amber',
+      })
     }
 
     if (metrics.last_lead_at) {
-      const daysSince = (Date.now() - new Date(metrics.last_lead_at).getTime()) / 86_400_000
+      const daysSince = Math.floor((Date.now() - new Date(metrics.last_lead_at).getTime()) / 86_400_000)
       if (daysSince > 7) {
-        alerts.push({ creatorId: creator.id, creatorName: creator.name, issue: 'No active leads in 7 days', severity: 'amber' })
+        alerts.push({
+          id:          `${creator.id}:no_leads_7d`,
+          creatorId:   creator.id,
+          creatorName: creator.name,
+          issue:       `No active leads in ${daysSince} days — pipeline may be stalled`,
+          severity:    'amber',
+          daysLabel:   `${daysSince}d no leads`,
+        })
       }
     } else if (creator.onboarding_complete) {
-      alerts.push({ creatorId: creator.id, creatorName: creator.name, issue: 'No leads created yet', severity: 'amber' })
+      alerts.push({
+        id:          `${creator.id}:no_leads_ever`,
+        creatorId:   creator.id,
+        creatorName: creator.name,
+        issue:       'No leads created yet — pipeline setup may be incomplete',
+        severity:    'amber',
+      })
     }
 
-    if (metrics.close_rate !== null && metrics.close_rate < 20 && metrics.active_leads > 0) {
-      alerts.push({ creatorId: creator.id, creatorName: creator.name, issue: `Low close rate (${metrics.close_rate}%)`, severity: 'red' })
+    if (dueTodayPerCreator[creator.id]) {
+      const n = dueTodayPerCreator[creator.id]
+      alerts.push({
+        id:          `${creator.id}:due_today`,
+        creatorId:   creator.id,
+        creatorName: creator.name,
+        issue:       `${n} payment instalment${n !== 1 ? 's' : ''} due today`,
+        severity:    'amber',
+        daysLabel:   'Due today',
+      })
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Health scores per creator ─────────────────────────────────────────────
+  const healthMap: Record<string, HealthScore> = {}
+  for (const creator of creators) {
+    const ca = alerts.filter(a => a.creatorId === creator.id)
+    const red   = ca.filter(a => a.severity === 'red').length
+    const amber = ca.filter(a => a.severity === 'amber').length
+    let score: HealthScore = 0
+    if (red > 0 || amber >= 2)  score = 2
+    else if (amber === 1)        score = 1
+    healthMap[creator.id] = score
+  }
 
-  const rollupStats = [
-    { icon: DollarSign, label: 'Total MRR',          value: fmtCurrency(total_mrr),        color: '#10b981' },
-    { icon: DollarSign, label: 'Cash Collected MTD',  value: fmtCurrency(cash_collected_mtd), color: '#60a5fa' },
-    { icon: Target,     label: 'Avg Close Rate',      value: `${avg_close_rate}%`,          color: '#a78bfa' },
-    { icon: TrendingUp, label: 'Avg Show Rate',       value: `${avg_show_rate}%`,           color: '#fbbf24' },
-    { icon: Users,      label: 'Active Leads',        value: active_leads_count,            color: '#f9fafb' },
-    { icon: Calendar,   label: 'Booked Calls MTD',    value: booked_calls_mtd,              color: '#34d399' },
+  // ── Serialize creators for client components ──────────────────────────────
+  const serializedCreators: SerializedCreator[] = creators.map(c => {
+    const users     = Array.isArray(c.users) ? (c.users as typeof c.users[])[0] ?? null : c.users
+    const igAccount = Array.isArray(c.instagram_accounts)
+      ? (c.instagram_accounts as (typeof c.instagram_accounts)[])[0] ?? null
+      : c.instagram_accounts
+    return {
+      id:                  c.id,
+      name:                c.name,
+      niche:               c.niche,
+      ghl_location_id:     c.ghl_location_id,
+      onboarding_complete: c.onboarding_complete,
+      created_at:          c.created_at,
+      email:               (users as { email: string } | null)?.email ?? '—',
+      ig_username:         igAccount?.username   ?? null,
+      ig_followers:        igAccount?.followers_count ?? null,
+      ig_updated_at:       igAccount?.updated_at ?? null,
+      ig_state:            getIgState(c.integrations),
+    }
+  })
+
+  // ── Rollup stats for the bar ──────────────────────────────────────────────
+  const rollup = [
+    { icon: DollarSign,     label: 'Total MRR',            value: fmtCurrency(total_mrr),         color: '#10b981', delta: null                      },
+    { icon: DollarSign,     label: 'Cash Collected MTD',   value: fmtCurrency(cash_collected_mtd), color: '#60a5fa', delta: cashWow                   },
+    { icon: Target,         label: 'Avg Close Rate',       value: `${avg_close_rate}%`,            color: avg_close_rate < 20 ? '#f87171' : '#a78bfa', delta: null },
+    { icon: TrendingUp,     label: 'Avg Show Rate',        value: `${avg_show_rate}%`,             color: avg_show_rate < 40  ? '#f59e0b' : '#fbbf24', delta: null },
+    { icon: Calendar,       label: 'Booked Calls MTD',     value: booked_calls_mtd,                color: '#34d399', delta: bookedWow                 },
+    { icon: MessageSquare,  label: 'DMs MTD',              value: dms_mtd,                         color: '#f9fafb', delta: null                      },
+    { icon: CreditCard,     label: 'Outstanding (30d)',    value: total_outstanding > 0 ? fmtCurrency(total_outstanding) : '—', color: total_outstanding > 0 ? '#f87171' : '#4b5563', delta: null },
   ]
+
+  const redAlerts   = alerts.filter(a => a.severity === 'red').length
+  const totalAlerts = alerts.length
 
   return (
     <div className="min-h-screen pb-16" style={{ backgroundColor: '#0a0f1e' }}>
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-[22px] font-bold text-[#f9fafb]">Agency Overview</h1>
-        <p className="mt-1 text-[13px] text-[#6b7280]">
-          {creators.length} creator{creators.length !== 1 ? 's' : ''} · month-to-date
-        </p>
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-[22px] font-bold text-[#f9fafb]">Agency Overview</h1>
+          <p className="mt-0.5 text-[13px] text-[#6b7280]">
+            {creators.length} creator{creators.length !== 1 ? 's' : ''} · month-to-date
+            {totalAlerts > 0 && (
+              <span className="ml-2 font-semibold" style={{ color: redAlerts > 0 ? '#f87171' : '#fbbf24' }}>
+                · {totalAlerts} alert{totalAlerts !== 1 ? 's' : ''} active
+              </span>
+            )}
+          </p>
+        </div>
+        <Link
+          href="/admin/team"
+          className="rounded-xl px-4 py-2 text-[12px] font-semibold text-[#9ca3af] transition-colors hover:text-[#f9fafb]"
+          style={{ backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          Team Overview →
+        </Link>
       </div>
 
-      {/* Rollup stat pills */}
-      <div className="mb-8 flex flex-wrap gap-3">
-        {rollupStats.map((s) => (
-          <StatPill key={s.label} icon={s.icon} label={s.label} value={s.value} color={s.color} />
+      {/* ── 1. Agency Rollup Bar ────────────────────────────────────────── */}
+      <div className="mb-6 flex flex-wrap gap-2.5">
+        {rollup.map(s => (
+          <RollupChip
+            key={s.label}
+            icon={s.icon}
+            label={s.label}
+            value={s.value}
+            color={s.color}
+            delta={s.delta}
+          />
         ))}
       </div>
 
-      {/* Creator cards grid */}
-      {creators.length === 0 ? (
+      {/* ── 2. Alerts Strip (before creator cards) ───────────────────── */}
+      <AlertsStrip alerts={alerts} />
+
+      {/* ── 3. Creator Cards Grid ────────────────────────────────────── */}
+      <CreatorGrid
+        creators={serializedCreators}
+        metricsMap={metricsMap}
+        healthMap={healthMap}
+        outstandingMap={outstandingMap}
+      />
+
+      {/* ── 4. Team Overview link ────────────────────────────────────── */}
+      {creators.length > 0 && (
         <div
-          className="flex flex-col items-center justify-center rounded-xl py-20 text-center"
+          className="mt-10 flex items-center justify-between rounded-xl px-5 py-4"
           style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}
         >
-          <Users className="mb-3 h-8 w-8 text-[#374151]" />
-          <p className="text-[14px] font-medium text-[#9ca3af]">No creators yet</p>
-          <p className="mt-1 text-[12px] text-[#4b5563]">
-            <Link href="/admin/creators" className="text-[#2563eb] hover:underline">Add your first creator</Link> to get started.
-          </p>
-        </div>
-      ) : (
-        <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {creators.map((creator) => (
-            <CreatorCard
-              key={creator.id}
-              creator={creator}
-              metrics={creatorMetrics.get(creator.id)!}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Alerts panel */}
-      {alerts.length > 0 && (
-        <div>
-          <div className="mb-4 flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-[#f59e0b]" />
-            <h2 className="text-[15px] font-semibold text-[#f9fafb]">Alerts</h2>
-            <span
-              className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
-              style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}
-            >
-              {alerts.length}
-            </span>
+          <div>
+            <p className="text-[13px] font-semibold text-[#f9fafb]">Team</p>
+            <p className="text-[12px] text-[#6b7280]">Setters, closers, and sales admins across all creators</p>
           </div>
-          <div
-            className="overflow-hidden rounded-xl"
-            style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.06)' }}
+          <Link
+            href="/admin/team"
+            className="rounded-xl px-4 py-2 text-[12px] font-semibold text-white"
+            style={{ backgroundColor: '#2563eb' }}
           >
-            <table className="w-full">
-              <thead>
-                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  {['Creator', 'Issue', 'Severity'].map((h) => (
-                    <th key={h} className="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-wide text-[#4b5563]">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[rgba(255,255,255,0.04)]">
-                {alerts.map((alert, i) => (
-                  <tr key={i} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="px-5 py-3.5 text-[13px] font-medium text-[#f9fafb]">
-                      {alert.creatorName}
-                    </td>
-                    <td className="px-5 py-3.5 text-[13px] text-[#9ca3af]">
-                      {alert.issue}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-                        style={alert.severity === 'red'
-                          ? { backgroundColor: 'rgba(239,68,68,0.12)',   color: '#f87171' }
-                          : { backgroundColor: 'rgba(245,158,11,0.12)',  color: '#fbbf24' }
-                        }
-                      >
-                        <span
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: alert.severity === 'red' ? '#ef4444' : '#f59e0b' }}
-                        />
-                        {alert.severity === 'red' ? 'Critical' : 'Warning'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {alerts.length === 0 && creators.length > 0 && (
-        <div
-          className="flex items-center gap-3 rounded-xl px-5 py-4"
-          style={{ backgroundColor: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.15)' }}
-        >
-          <div className="h-2.5 w-2.5 rounded-full bg-[#10b981]" />
-          <p className="text-[13px] font-medium text-[#10b981]">
-            All {creators.length} creator{creators.length !== 1 ? 's' : ''} operating normally — no alerts.
-          </p>
+            View Team →
+          </Link>
         </div>
       )}
     </div>
