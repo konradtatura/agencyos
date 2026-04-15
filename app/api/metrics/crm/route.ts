@@ -195,6 +195,32 @@ function resolvePeriod(range: string, fromParam?: string, toParam?: string): Per
   return { from, to, prevFrom, prevTo, label: labels[range] ?? 'Last 30 Days' }
 }
 
+// ── Stage mappings ─────────────────────────────────────────────────────────────
+// Maps each logical funnel stage to all real DB values that count towards it.
+
+const STAGE_VALUES = {
+  qualified:    ['Qualified', 'qualified'],
+  call_booked:  ['call_booked', 'Booked', 'Booked MT Call'],
+  showed:       ['showed'],
+  closed_won:   ['High Ticket PiF', 'High Ticket Split', 'Mid Ticket PiF', 'Mid Ticket Split', 'Low Ticket', 'closed_won'],
+  disqualified: ['Disqualified', 'disqualified'],
+} as const
+
+// Linear progression order (each slot = all real values at that level).
+// Used by the fallback: a lead "passed through" stage N if its current stage
+// is at index >= N in this list.
+const STAGE_ORDER: string[][] = [
+  ['new', 'New'],
+  [...STAGE_VALUES.qualified],
+  [...STAGE_VALUES.call_booked],
+  [...STAGE_VALUES.showed],
+  [...STAGE_VALUES.closed_won],
+]
+
+function stageOrderIdx(stage: string): number {
+  return STAGE_ORDER.findIndex(group => group.includes(stage))
+}
+
 // ── Stage count helpers ────────────────────────────────────────────────────────
 
 function buildFunnelFromHistory(
@@ -214,39 +240,51 @@ function buildFunnelFromHistory(
     }
   }
 
-  const countFromHistory = (stage: string) => reached[stage]?.size ?? 0
+  // Count unique lead IDs across all real DB values that map to a logical stage
+  const countFromHistory = (logicalStage: keyof typeof STAGE_VALUES): number => {
+    const ids = new Set<string>()
+    for (const realStage of STAGE_VALUES[logicalStage]) {
+      const set = reached[realStage]
+      if (set) set.forEach(id => ids.add(id))
+    }
+    return ids.size
+  }
 
-  // Build a map of current stage for leads in period (for per-stage fallback)
   const periodLeadIds = new Set(leadsInPeriod.map(l => l.id))
-  const stageCount = (stage: string) => {
-    // Primary: use history counts
-    const fromHistory = countFromHistory(stage)
+
+  // Per-stage count: history first, then fallback to current stage on leads in period
+  const stageCount = (logicalStage: keyof typeof STAGE_VALUES): number => {
+    const fromHistory = countFromHistory(logicalStage)
     if (fromHistory > 0) return fromHistory
-    // Fallback: count leads in period whose current stage matches or has passed this stage
-    // Only kick in when history returned nothing for this specific stage
-    const stageOrder = ['new', 'qualified', 'call_booked', 'showed', 'closed_won', 'disqualified']
-    const stageIdx = stageOrder.indexOf(stage)
+    // Fallback: lead's current stage is at or past the target stage in the linear order
+    const targetIdx = STAGE_ORDER.findIndex(g =>
+      (STAGE_VALUES[logicalStage] as readonly string[]).every(v => g.includes(v)) ||
+      g.some(v => (STAGE_VALUES[logicalStage] as readonly string[]).includes(v))
+    )
     return allLeads.filter(l => {
       if (!periodLeadIds.has(l.id)) return false
-      const currentIdx = stageOrder.indexOf(l.stage ?? '')
-      // Lead's current stage is at or past the target stage (it did pass through it)
-      return stageIdx >= 0 && currentIdx >= stageIdx
+      const currentIdx = stageOrderIdx(l.stage ?? '')
+      return targetIdx >= 0 && currentIdx >= targetIdx
     }).length
   }
 
   const total_leads_entered = leadsInPeriod.length
-
-  // qualified = leads that reached qualified or further
   const qualified    = stageCount('qualified')
   const call_booked  = stageCount('call_booked')
   const showed       = stageCount('showed')
   const closed_won   = stageCount('closed_won')
-  // disqualified is a terminal branch, not part of the linear order — count directly
-  const disqualified = countFromHistory('disqualified') > 0
-    ? countFromHistory('disqualified')
-    : allLeads.filter(l => periodLeadIds.has(l.id) && l.stage === 'disqualified').length
 
-  // Downgrade closed: pipeline_type='downgrade' AND downgrade_stage='closed' updated in period
+  // disqualified: terminal branch — count directly, no linear fallback
+  const disqualified = (() => {
+    const fromHistory = countFromHistory('disqualified')
+    if (fromHistory > 0) return fromHistory
+    const dqStages: string[] = [...STAGE_VALUES.disqualified]
+    return allLeads.filter(l =>
+      periodLeadIds.has(l.id) && dqStages.includes(l.stage ?? '')
+    ).length
+  })()
+
+  // Downgrade closed: pipeline_type='downgrade' AND downgrade_stage='closed'
   const downgrade_closed = allLeads.filter(l =>
     l.pipeline_type === 'downgrade' && l.downgrade_stage === 'closed'
   ).length
