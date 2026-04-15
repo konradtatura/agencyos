@@ -15,6 +15,8 @@ const MAIN_PIPELINE_STAGES = [
 const DOWNGRADE_PIPELINE_STAGES = ['offered', 'interested', 'booked', 'closed']
 import ActivityTimeline from '@/components/crm/ActivityTimeline'
 import DisqualifyModal from '@/components/crm/DisqualifyModal'
+import PostCallNoteModal from './post-call-note-modal'
+import type { PostCallNote } from '@/types/revenue'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -150,6 +152,19 @@ export default function LeadDetailClient({ initialLead, userNames }: LeadDetailC
   // Notes
   const [noteText, setNoteText] = useState('')
   const [submittingNote, setSubmittingNote] = useState(false)
+
+  // Post-call notes
+  const [postCallOpen,  setPostCallOpen]  = useState(false)
+  const [postCallNotes, setPostCallNotes] = useState<PostCallNote[]>([])
+
+  const loadPostCallNotes = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/revenue/post-call-notes?lead_id=${initialLead.id}`)
+      if (res.ok) setPostCallNotes(await res.json())
+    } catch { /* ignore */ }
+  }, [initialLead.id])
+
+  useEffect(() => { loadPostCallNotes() }, [loadPostCallNotes])
 
   // Team members
   const [setters, setSetters] = useState<TeamMember[]>([])
@@ -400,22 +415,37 @@ export default function LeadDetailClient({ initialLead, userNames }: LeadDetailC
                 </span>
               )}
 
-              {/* Disqualify button (main pipeline only) */}
-              {!isDowngrade && lead.stage !== 'dead' && lead.stage !== 'disqualified' && (
+              {/* Action buttons */}
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <button
-                  onClick={() => setDisqualifyOpen(true)}
+                  onClick={() => setPostCallOpen(true)}
                   style={{
-                    marginLeft: 'auto', fontSize: 11.5, fontWeight: 500, color: '#ef4444',
+                    fontSize: 11.5, fontWeight: 500, color: '#60a5fa',
                     padding: '5px 12px', borderRadius: 6,
-                    border: '1px solid rgba(239,68,68,0.2)',
-                    backgroundColor: 'rgba(239,68,68,0.06)', cursor: 'pointer',
+                    border: '1px solid rgba(96,165,250,0.2)',
+                    backgroundColor: 'rgba(96,165,250,0.06)', cursor: 'pointer',
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.12)' }}
-                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.06)' }}
+                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(96,165,250,0.12)' }}
+                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'rgba(96,165,250,0.06)' }}
                 >
-                  Disqualify
+                  + Post-Call Note
                 </button>
-              )}
+                {!isDowngrade && lead.stage !== 'dead' && lead.stage !== 'disqualified' && (
+                  <button
+                    onClick={() => setDisqualifyOpen(true)}
+                    style={{
+                      fontSize: 11.5, fontWeight: 500, color: '#ef4444',
+                      padding: '5px 12px', borderRadius: 6,
+                      border: '1px solid rgba(239,68,68,0.2)',
+                      backgroundColor: 'rgba(239,68,68,0.06)', cursor: 'pointer',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.12)' }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'rgba(239,68,68,0.06)' }}
+                  >
+                    Disqualify
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -511,6 +541,80 @@ export default function LeadDetailClient({ initialLead, userNames }: LeadDetailC
               notes={notes}
               userNames={allNames}
             />
+
+            {/* Post-call notes */}
+            {postCallNotes.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <p style={{
+                  fontSize: 10.5, fontWeight: 600, color: '#4b5563',
+                  textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12,
+                }}>
+                  Post-Call Notes
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {postCallNotes.map(pcn => {
+                    const outcomeColors: Record<string, { bg: string; color: string }> = {
+                      closed:       { bg: 'rgba(16,185,129,0.12)',  color: '#34d399' },
+                      no_show:      { bg: 'rgba(239,68,68,0.12)',   color: '#f87171' },
+                      follow_up:    { bg: 'rgba(245,158,11,0.12)',  color: '#fbbf24' },
+                      disqualified: { bg: 'rgba(107,114,128,0.12)', color: '#9ca3af' },
+                      rescheduled:  { bg: 'rgba(14,165,233,0.12)',  color: '#38bdf8' },
+                    }
+                    const oc = outcomeColors[pcn.call_outcome ?? ''] ?? { bg: 'rgba(255,255,255,0.06)', color: '#9ca3af' }
+                    const outcomeLabel: Record<string, string> = {
+                      closed: 'Closed', no_show: 'No Show', follow_up: 'Follow-Up',
+                      disqualified: 'Disqualified', rescheduled: 'Rescheduled',
+                    }
+                    return (
+                      <div key={pcn.id} style={{
+                        padding: '12px 14px', borderRadius: 10,
+                        backgroundColor: '#111827',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          {pcn.call_date && (
+                            <span style={{ fontSize: 11.5, fontWeight: 600, color: '#d1d5db' }}>
+                              {new Date(pcn.call_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                          )}
+                          {pcn.call_outcome && (
+                            <span style={{
+                              fontSize: 10.5, fontWeight: 600, padding: '2px 8px',
+                              borderRadius: 4, backgroundColor: oc.bg, color: oc.color,
+                            }}>
+                              {outcomeLabel[pcn.call_outcome] ?? pcn.call_outcome}
+                            </span>
+                          )}
+                          {pcn.crm_updated && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 500, padding: '2px 7px', borderRadius: 4,
+                              backgroundColor: 'rgba(37,99,235,0.1)', color: '#60a5fa',
+                            }}>
+                              CRM Updated
+                            </span>
+                          )}
+                        </div>
+                        {pcn.offer_pitched && (
+                          <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: pcn.prospect_notes ? 4 : 0 }}>
+                            <span style={{ color: '#6b7280' }}>Offer: </span>{pcn.offer_pitched}
+                          </p>
+                        )}
+                        {pcn.call_outcome === 'closed' && pcn.cash_collected_upfront != null && (
+                          <p style={{ fontSize: 12, color: '#34d399', marginBottom: pcn.prospect_notes ? 4 : 0 }}>
+                            ${pcn.cash_collected_upfront.toLocaleString()} upfront
+                            {pcn.amount_owed ? ` · $${pcn.amount_owed.toLocaleString()} owed` : ''}
+                            {pcn.instalment_count && pcn.instalment_count > 1 ? ` · ${pcn.instalment_count} instalments` : ''}
+                          </p>
+                        )}
+                        {pcn.prospect_notes && (
+                          <p style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'pre-wrap' }}>{pcn.prospect_notes}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -747,6 +851,14 @@ export default function LeadDetailClient({ initialLead, userNames }: LeadDetailC
 
         </div>
       </div>
+
+      {postCallOpen && (
+        <PostCallNoteModal
+          leadId={lead.id}
+          onClose={() => setPostCallOpen(false)}
+          onSaved={() => { setPostCallOpen(false); loadPostCallNotes() }}
+        />
+      )}
 
       <DisqualifyModal
         leadId={lead.id}

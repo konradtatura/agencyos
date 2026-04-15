@@ -26,6 +26,8 @@ import {
   Zap,
   LogOut,
   ListChecks,
+  CreditCard,
+  Receipt,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -102,6 +104,15 @@ function creatorNav(dmUnreadCount: number, tallyNewCount: number = 0): NavSectio
         { href: '/dashboard/calendar', icon: CalendarDays, label: 'Calendar'                       },
         { href: '/dashboard/metrics', icon: TrendingUp,    label: 'Metrics'                        },
         { href: '/dashboard/revenue', icon: DollarSign,    label: 'Revenue'                        },
+      ],
+    },
+    {
+      title: 'Revenue',
+      items: [
+        { href: '/dashboard/revenue/roas',        icon: TrendingUp,   label: 'ROAS'                },
+        { href: '/dashboard/revenue/funnel',      icon: BarChart2,    label: 'VSL Funnel'          },
+        { href: '/dashboard/revenue/outstanding', icon: CreditCard,   label: 'Outstanding'         },
+        { href: '/dashboard/revenue/expenses',    icon: Receipt,      label: 'Expenses'            },
       ],
     },
     {

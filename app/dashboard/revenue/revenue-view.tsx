@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend, CartesianGrid,
 } from 'recharts'
-import { Plus, Pencil, Trash2, RefreshCw, TrendingUp, DollarSign, ShoppingCart, BarChart2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, RefreshCw, TrendingUp, DollarSign, ShoppingCart, BarChart2, ArrowRight } from 'lucide-react'
 import type { RevenueSummary, Sale, SaleWithRelations, Product } from '@/types/revenue'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
@@ -430,12 +431,21 @@ function ProductModal({
 
 // ── Overview tab ───────────────────────────────────────────────────────────────
 
-function OverviewTab({ summary, loading, error, range, onRangeChange }: {
+interface OverviewExtras {
+  allTimeTiers:  Array<{ tier: string; total: number }>
+  monthTiers:    Array<{ tier: string; total: number }>
+  allTimeExpenses: number
+  monthExpenses:   number
+  outstandingAmt:  number
+}
+
+function OverviewTab({ summary, loading, error, range, onRangeChange, extras }: {
   summary: RevenueSummary | null
   loading: boolean
   error:   string | null
   range: string
   onRangeChange: (r: string) => void
+  extras: OverviewExtras
 }) {
   if (loading) {
     return (
@@ -463,8 +473,61 @@ function OverviewTab({ summary, loading, error, range, onRangeChange }: {
   const tierData  = byTier.filter((t) => t.total > 0)
   const platData  = byPlatform.filter((p) => p.total > 0)
 
+  // All-time tier helpers
+  const tierAmt = (tiers: Array<{ tier: string; total: number }>, t: string) =>
+    tiers.find(x => x.tier === t)?.total ?? 0
+
+  const allTimeGross = extras.allTimeTiers.reduce((s, t) => s + t.total, 0)
+  const monthGross   = extras.monthTiers.reduce((s, t) => s + t.total, 0)
+  const monthNetProfit = monthGross - extras.monthExpenses
+
   return (
     <div className="space-y-6">
+      {/* ── All-Time Totals ────────────────────────────────────────────── */}
+      <div>
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-[#4b5563]">All-Time Totals</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <StatCard label="LT Cash"        value={fmtUSD(tierAmt(extras.allTimeTiers, 'lt'))} icon={DollarSign} color="#34d399" />
+          <StatCard label="MT Cash"        value={fmtUSD(tierAmt(extras.allTimeTiers, 'mt'))} icon={DollarSign} color="#60a5fa" />
+          <StatCard label="HT Cash"        value={fmtUSD(tierAmt(extras.allTimeTiers, 'ht'))} icon={DollarSign} color="#a78bfa" />
+          <StatCard label="Total Expenses" value={fmtUSD(extras.allTimeExpenses)} icon={BarChart2} color="#f87171" />
+          <StatCard label="Gross Collected" value={fmtUSD(allTimeGross)} icon={TrendingUp} color="#fbbf24" />
+        </div>
+      </div>
+
+      {/* ── Monthly P&L ───────────────────────────────────────────────── */}
+      <div>
+        <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-[#4b5563]">This Month</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
+          <StatCard label="LT Cash"        value={fmtUSD(tierAmt(extras.monthTiers, 'lt'))} icon={DollarSign} color="#34d399" />
+          <StatCard label="MT Cash"        value={fmtUSD(tierAmt(extras.monthTiers, 'mt'))} icon={DollarSign} color="#60a5fa" />
+          <StatCard label="HT Cash"        value={fmtUSD(tierAmt(extras.monthTiers, 'ht'))} icon={DollarSign} color="#a78bfa" />
+          <StatCard label="Expenses"       value={fmtUSD(extras.monthExpenses)} icon={BarChart2} color="#f87171" />
+          <StatCard label="Gross Cash"     value={fmtUSD(monthGross)} icon={TrendingUp} color="#fbbf24" />
+          <div style={{ ...CARD, borderColor: monthNetProfit >= 0 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)' }}>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Net Profit</p>
+            <p className="text-[26px] font-bold" style={{ color: monthNetProfit >= 0 ? '#34d399' : '#f87171' }}>
+              {fmtUSD(monthNetProfit)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Outstanding Instalments ────────────────────────────────────── */}
+      {extras.outstandingAmt > 0 && (
+        <Link
+          href="/dashboard/revenue/outstanding"
+          className="flex items-center justify-between rounded-xl px-5 py-3.5 transition-colors hover:bg-white/[0.03]"
+          style={{ backgroundColor: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}
+        >
+          <div>
+            <p className="text-[12.5px] font-semibold text-[#fbbf24]">Outstanding Instalments</p>
+            <p className="text-[12px] text-[#9ca3af]">{fmtUSD(extras.outstandingAmt)} owed across active payment plans</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-[#fbbf24]" />
+        </Link>
+      )}
+
       {/* Range pills */}
       <div className="flex gap-2">
         {RANGES.map((r) => (
@@ -911,6 +974,10 @@ const EMPTY_SUMMARY: RevenueSummary = {
   monthly:       [],
 }
 
+const EMPTY_EXTRAS: OverviewExtras = {
+  allTimeTiers: [], monthTiers: [], allTimeExpenses: 0, monthExpenses: 0, outstandingAmt: 0,
+}
+
 export default function RevenueView() {
   const [tab,             setTab]             = useState<Tab>('overview')
   const [range,           setRange]           = useState('30d')
@@ -920,6 +987,7 @@ export default function RevenueView() {
   const [products,        setProducts]        = useState<Product[]>([])
   const [syncing,         setSyncing]         = useState(false)
   const [syncError,       setSyncError]       = useState<string | null>(null)
+  const [extras,          setExtras]          = useState<OverviewExtras>(EMPTY_EXTRAS)
 
   const loadSummary = useCallback(async (r: string) => {
     setSummary(null)
@@ -968,8 +1036,39 @@ export default function RevenueView() {
     await Promise.all([loadSummary(range), loadProducts()])
   }, [range, loadSummary, loadProducts])
 
+  // Load extras: all-time tiers, monthly tiers, expenses, outstanding
+  const loadExtras = useCallback(async () => {
+    try {
+      const monthStart = new Date()
+      monthStart.setDate(1)
+      const monthStartStr = monthStart.toISOString().slice(0, 10)
+      const today = new Date().toISOString().slice(0, 10)
+
+      const [allRes, monRes, expAllRes, expMonRes, instRes] = await Promise.all([
+        fetch('/api/revenue/summary?range=all'),
+        fetch('/api/revenue/summary?range=month'),
+        fetch('/api/revenue/expenses'),
+        fetch(`/api/revenue/expenses?from=${monthStartStr}&to=${today}`),
+        fetch('/api/revenue/instalments?status=pending,overdue'),
+      ])
+
+      const [allData, monData, expAll, expMon, instData] = await Promise.all([
+        allRes.json(), monRes.json(), expAllRes.json(), expMonRes.json(), instRes.json(),
+      ])
+
+      const allTimeTiers  = (allData.byTier ?? []) as Array<{ tier: string; total: number }>
+      const monthTiers    = (monData.byTier ?? []) as Array<{ tier: string; total: number }>
+      const allTimeExpenses = Array.isArray(expAll) ? expAll.reduce((s: number, e: { amount: number }) => s + Number(e.amount), 0) : 0
+      const monthExpenses   = Array.isArray(expMon) ? expMon.reduce((s: number, e: { amount: number }) => s + Number(e.amount), 0) : 0
+      const outstandingAmt  = Array.isArray(instData) ? instData.reduce((s: number, i: { amount: number }) => s + Number(i.amount), 0) : 0
+
+      setExtras({ allTimeTiers, monthTiers, allTimeExpenses, monthExpenses, outstandingAmt })
+    } catch { /* non-fatal */ }
+  }, [])
+
   useEffect(() => { loadSummary(range) }, [range, loadSummary])
   useEffect(() => { loadProducts() }, [loadProducts])
+  useEffect(() => { loadExtras() }, [loadExtras])
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'overview',  label: 'Overview' },
@@ -1021,6 +1120,7 @@ export default function RevenueView() {
           error={summaryError}
           range={range}
           onRangeChange={(r) => { setRange(r); loadSummary(r) }}
+          extras={extras}
         />
       )}
       {tab === 'sales'    && <SalesTab products={products} />}
