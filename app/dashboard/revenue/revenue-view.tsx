@@ -5,6 +5,7 @@ import Link from 'next/link'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend, CartesianGrid,
+  AreaChart, Area,
 } from 'recharts'
 import { Plus, Pencil, Trash2, RefreshCw, TrendingUp, DollarSign, ShoppingCart, BarChart2, ArrowRight } from 'lucide-react'
 import type { RevenueSummary, Sale, SaleWithRelations, Product } from '@/types/revenue'
@@ -422,34 +423,155 @@ function ProductModal({
   )
 }
 
-// ── Revenue Snapshot Banner ────────────────────────────────────────────────────
+// ── Revenue Snapshot Banner (Whop-style) ──────────────────────────────────────
 
-const MONO = "'JetBrains Mono', 'Fira Code', monospace"
+type DailyRow = { date: string; gross: number; net: number; recurring: number }
 
-function SnapshotStat({
-  label, value, sub, accent,
+/** Tiny sparkline — no axes, just the shape */
+function Sparkline({
+  data, dataKey, color, gradientId,
 }: {
-  label: string; value: string; sub?: string; accent?: string
+  data:       DailyRow[]
+  dataKey:    string
+  color:      string
+  gradientId: string
 }) {
+  if (!data.length) return <div style={{ height: 70 }} />
   return (
-    <div className="flex flex-col gap-0.5 min-w-0">
-      <span
-        className="text-[10px] font-semibold uppercase tracking-widest"
-        style={{ color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em' }}
-      >
-        {label}
-      </span>
-      <span
-        className="text-[22px] font-bold leading-none truncate"
-        style={{ color: accent ?? '#f9fafb', fontFamily: MONO }}
-      >
-        {value}
-      </span>
-      {sub && (
-        <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
-          {sub}
-        </span>
-      )}
+    <ResponsiveContainer width="100%" height={70}>
+      <AreaChart data={data} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor={color} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={color} stopOpacity={0.0}  />
+          </linearGradient>
+        </defs>
+        <Area
+          type="monotone"
+          dataKey={dataKey}
+          stroke={color}
+          strokeWidth={1.5}
+          fill={`url(#${gradientId})`}
+          dot={false}
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** One metric card with delta badge + sparkline */
+function WhopCard({
+  label, value, delta, data, dataKey, color, gradientId, loading,
+}: {
+  label:      string
+  value:      string
+  delta:      number
+  data:       DailyRow[]
+  dataKey:    string
+  color:      string
+  gradientId: string
+  loading:    boolean
+}) {
+  const positive = delta >= 0
+  const fmtDelta = (v: number) =>
+    Math.abs(v) >= 1000
+      ? `${positive ? '+' : ''}${fmtUSD(v)}`
+      : `${positive ? '+' : ''}${v.toFixed(0)}`
+
+  return (
+    <div
+      style={{
+        backgroundColor: '#0d1117',
+        border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: 12,
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{ padding: '16px 16px 8px' }}>
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 8, fontWeight: 500 }}>
+          {label}
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span style={{ fontSize: 22, fontWeight: 700, color: '#f9fafb', lineHeight: 1 }}>
+            {loading ? '—' : value}
+          </span>
+          {!loading && delta !== 0 && (
+            <span
+              style={{
+                fontSize: 11, fontWeight: 600,
+                padding: '2px 7px', borderRadius: 5,
+                backgroundColor: positive ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                color:           positive ? '#34d399' : '#f87171',
+              }}
+            >
+              {fmtDelta(delta)}
+            </span>
+          )}
+        </div>
+      </div>
+      <Sparkline data={data} dataKey={dataKey} color={color} gradientId={gradientId} />
+    </div>
+  )
+}
+
+/** Payments breakdown panel */
+function PaymentsBreakdown({ gross, loading }: { gross: number; loading: boolean }) {
+  const rows = [
+    { label: 'Paid',      amount: gross, color: '#14b8a6' },
+    { label: 'Failed',    amount: 0,     color: '#ef4444' },
+    { label: 'Past due',  amount: 0,     color: '#f59e0b' },
+    { label: 'Cancelled', amount: 0,     color: '#6b7280' },
+    { label: 'Refunded',  amount: 0,     color: '#6b7280' },
+  ]
+  const total = rows.reduce((s, r) => s + r.amount, 0) || 1
+
+  return (
+    <div
+      style={{
+        backgroundColor: '#0d1117',
+        border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: 12,
+        padding: '16px 16px 20px',
+      }}
+    >
+      <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 14, fontWeight: 500 }}>
+        Payments breakdown
+      </p>
+
+      {/* Stacked bar */}
+      <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 16, backgroundColor: 'rgba(255,255,255,0.06)' }}>
+        {rows.filter(r => r.amount > 0).map(r => (
+          <div
+            key={r.label}
+            style={{ width: `${(r.amount / total) * 100}%`, backgroundColor: r.color }}
+          />
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {rows.map(r => {
+          const pct = Math.round((r.amount / total) * 100)
+          return (
+            <div key={r.label} className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: r.amount ? r.color : 'rgba(255,255,255,0.12)', flexShrink: 0 }} />
+                <span style={{ fontSize: 12, color: r.amount ? '#d1d5db' : 'rgba(255,255,255,0.3)' }}>
+                  {r.label}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span style={{ fontSize: 12, fontWeight: 500, color: r.amount ? '#f9fafb' : 'rgba(255,255,255,0.2)' }}>
+                  {loading ? '—' : fmtUSD(r.amount)}
+                </span>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', minWidth: 36, textAlign: 'right' }}>
+                  ({r.amount ? pct : 0}%)
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -461,13 +583,24 @@ function RevenueSnapshotBanner({
   customFrom,
   customTo,
 }: {
-  summary: RevenueSummary | null
-  loading: boolean
-  range: Range
+  summary:    RevenueSummary | null
+  loading:    boolean
+  range:      Range
   customFrom?: string
-  customTo?: string
+  customTo?:   string
 }) {
-  const s = summary
+  const s     = summary
+  const daily = s?.daily ?? []
+
+  const gross = s?.cashCollected     ?? 0
+  const net   = s?.netRevenue        ?? 0
+  const mrr   = s?.mrr               ?? 0
+  const arr   = s?.arr               ?? 0
+  const sales = s?.totalSales        ?? 0
+
+  const prevGross = s?.prevCashCollected ?? 0
+  const prevNet   = s?.prevNetRevenue    ?? 0
+  const prevMrr   = s?.prevMrr           ?? 0
 
   const rangeLabel =
     range === 'today' ? 'Today' :
@@ -477,87 +610,60 @@ function RevenueSnapshotBanner({
     range === 'all'   ? 'All time' :
     customFrom && customTo ? `${customFrom} → ${customTo}` : 'Custom'
 
-  const gross = s?.cashCollected ?? 0
-  const net   = s?.netRevenue    ?? 0
-  const mrr   = s?.mrr           ?? 0
-  const arr   = s?.arr           ?? 0
-  const sales = s?.totalSales    ?? 0
-  const saved = gross - net  // platform fees deducted
+  const feesSaved = gross - net
 
   return (
-    <div
-      className="mb-6 rounded-2xl overflow-hidden"
-      style={{
-        background: 'linear-gradient(135deg, #0d1117 0%, #111827 100%)',
-        border: '1px solid rgba(255,255,255,0.07)',
-      }}
-    >
-      {/* Header strip */}
-      <div
-        className="flex items-center justify-between px-5 py-3"
-        style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-      >
+    <div className="mb-6">
+      {/* Label row */}
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          <span className="text-[11px] font-semibold text-[#9ca3af] tracking-wide">
+          <span
+            className="text-[11px] font-semibold uppercase tracking-widest"
+            style={{ color: 'rgba(255,255,255,0.35)' }}
+          >
             Revenue Snapshot
           </span>
           <span
             className="rounded-md px-2 py-0.5 text-[10px] font-semibold"
-            style={{ backgroundColor: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)' }}
+            style={{ backgroundColor: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.35)' }}
           >
             {rangeLabel}
           </span>
         </div>
-        {saved > 0 && !loading && (
-          <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.25)' }}>
-            {fmtUSD(saved)} in Whop fees (–3%)
+        {!loading && feesSaved > 0 && (
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>
+            {fmtUSD(feesSaved)} in Whop fees (–3%)
           </span>
         )}
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 gap-0 sm:grid-cols-5">
-        {[
-          {
-            label: 'Gross Revenue',
-            value: loading ? '—' : fmtUSD(gross),
-            sub: 'total collected',
-          },
-          {
-            label: 'Net Revenue',
-            value: loading ? '—' : fmtUSD(net),
-            sub: 'after platform fees',
-            accent: '#34d399',
-          },
-          {
-            label: 'MRR',
-            value: loading ? '—' : fmtUSD(mrr),
-            sub: 'recurring / mo',
-            accent: '#60a5fa',
-          },
-          {
-            label: 'ARR',
-            value: loading ? '—' : fmtUSD(arr),
-            sub: 'annualised run rate',
-            accent: '#a78bfa',
-          },
-          {
-            label: 'Sales',
-            value: loading ? '—' : String(sales),
-            sub: 'transactions',
-          },
-        ].map((stat, i) => (
-          <div
-            key={stat.label}
-            className="px-5 py-4"
-            style={{
-              borderRight: i < 4 ? '1px solid rgba(255,255,255,0.05)' : undefined,
-            }}
-          >
-            <SnapshotStat {...stat} />
-          </div>
-        ))}
+      {/* Row 1: Gross | Net | Sales */}
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <WhopCard
+          label="Gross revenue" value={fmtUSD(gross)} delta={gross - prevGross}
+          data={daily} dataKey="gross" color="#14b8a6" gradientId="snap-gross" loading={loading}
+        />
+        <WhopCard
+          label="Net revenue" value={fmtUSD(net)} delta={net - prevNet}
+          data={daily} dataKey="net" color="#14b8a6" gradientId="snap-net" loading={loading}
+        />
+        <WhopCard
+          label="Sales" value={String(sales)} delta={0}
+          data={daily} dataKey="gross" color="#6366f1" gradientId="snap-sales" loading={loading}
+        />
+      </div>
+
+      {/* Row 2: MRR | ARR | Payments breakdown */}
+      <div className="grid grid-cols-3 gap-3">
+        <WhopCard
+          label="MRR" value={fmtUSD(mrr)} delta={mrr - prevMrr}
+          data={daily} dataKey="recurring" color="#14b8a6" gradientId="snap-mrr" loading={loading}
+        />
+        <WhopCard
+          label="ARR" value={fmtUSD(arr)} delta={(mrr - prevMrr) * 12}
+          data={daily} dataKey="recurring" color="#14b8a6" gradientId="snap-arr" loading={loading}
+        />
+        <PaymentsBreakdown gross={gross} loading={loading} />
       </div>
     </div>
   )
@@ -1083,19 +1189,23 @@ function ProductsTab() {
 type Tab = 'overview' | 'sales' | 'products'
 
 const EMPTY_SUMMARY: RevenueSummary = {
-  period:        { from: '', to: '' },
-  cashCollected: 0,
-  netRevenue:    0,
-  mrr:           0,
-  arr:           0,
-  newMrr:        0,
-  avgDealValue:  0,
-  totalSales:    0,
-  byTier:        [],
-  byPlatform:    [],
-  byCloser:      [],
-  bySource:      [],
-  monthly:       [],
+  period:            { from: '', to: '' },
+  cashCollected:     0,
+  netRevenue:        0,
+  mrr:               0,
+  arr:               0,
+  newMrr:            0,
+  avgDealValue:      0,
+  totalSales:        0,
+  prevCashCollected: 0,
+  prevNetRevenue:    0,
+  prevMrr:           0,
+  daily:             [],
+  byTier:            [],
+  byPlatform:        [],
+  byCloser:          [],
+  bySource:          [],
+  monthly:           [],
 }
 
 const EMPTY_EXTRAS: OverviewExtras = {

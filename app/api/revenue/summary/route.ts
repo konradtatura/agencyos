@@ -131,18 +131,16 @@ export async function GET(req: Request) {
 
   // Monthly breakdown (last 12 months)
   const monthlyMap = new Map<string, { ht: number; mt: number; lt: number; total: number }>()
-  // Seed last 12 months in order
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const key = fmtMonth(d.toISOString())
-    monthlyMap.set(key, { ht: 0, mt: 0, lt: 0, total: 0 })
+    monthlyMap.set(fmtMonth(d.toISOString()), { ht: 0, mt: 0, lt: 0, total: 0 })
   }
   for (const r of rows) {
-    const key = fmtMonth(r.sale_date)
-    const cur = monthlyMap.get(key) ?? { ht: 0, mt: 0, lt: 0, total: 0 }
-    const amt = Number(r.amount)
+    const key  = fmtMonth(r.sale_date)
+    const cur  = monthlyMap.get(key) ?? { ht: 0, mt: 0, lt: 0, total: 0 }
+    const amt  = Number(r.amount)
     const tier = r.product?.tier ?? 'lt'
-    const upd = { ...cur, total: cur.total + amt }
+    const upd  = { ...cur, total: cur.total + amt }
     if (tier === 'ht') upd.ht = cur.ht + amt
     else if (tier === 'mt') upd.mt = cur.mt + amt
     else upd.lt = cur.lt + amt
@@ -150,10 +148,81 @@ export async function GET(req: Request) {
   }
   const monthly = Array.from(monthlyMap.entries()).map(([month, v]) => ({ month, ...v }))
 
+  // ── Daily breakdown for sparkline charts ─────────────────────────────────
+  const dailyGrossMap     = new Map<string, number>()
+  const dailyNetMap       = new Map<string, number>()
+  const dailyRecurringMap = new Map<string, number>()
+
+  for (const r of rows) {
+    const day = r.sale_date
+    const amt = Number(r.amount)
+    const fee = r.platform === 'whop' ? WHOP_FEE : 0
+    dailyGrossMap.set(day, (dailyGrossMap.get(day) ?? 0) + amt)
+    dailyNetMap.set(day, (dailyNetMap.get(day) ?? 0) + amt * (1 - fee))
+    if (r.payment_type === 'recurring') {
+      dailyRecurringMap.set(day, (dailyRecurringMap.get(day) ?? 0) + amt)
+    }
+  }
+
+  const daily: RevenueSummary['daily'] = []
+  if (fromDate) {
+    // Fill every calendar day in the range (zeros for days with no sales)
+    const start = new Date(fromDate + 'T00:00:00Z')
+    const end   = new Date(to + 'T00:00:00Z')
+    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+      const key = d.toISOString().slice(0, 10)
+      daily.push({
+        date:      key,
+        gross:     dailyGrossMap.get(key) ?? 0,
+        net:       dailyNetMap.get(key) ?? 0,
+        recurring: dailyRecurringMap.get(key) ?? 0,
+      })
+    }
+  } else {
+    // All time — only days that have data
+    const allDays = Array.from(dailyGrossMap.keys()).sort()
+    for (const key of allDays) {
+      daily.push({
+        date:      key,
+        gross:     dailyGrossMap.get(key) ?? 0,
+        net:       dailyNetMap.get(key) ?? 0,
+        recurring: dailyRecurringMap.get(key) ?? 0,
+      })
+    }
+  }
+
+  // ── Previous period totals for delta badges ────────────────────────────────
+  let prevCashCollected = 0
+  let prevNetRevenue    = 0
+  let prevMrr           = 0
+
+  if (fromDate) {
+    const currentStart = new Date(fromDate + 'T00:00:00Z')
+    const currentDays  = Math.max(1, Math.round((now.getTime() - currentStart.getTime()) / 86400000))
+    const prevFromDate = new Date(currentStart.getTime() - currentDays * 86400000).toISOString().slice(0, 10)
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: prevSales } = await (admin as any)
+      .from('sales')
+      .select('amount, payment_type, platform')
+      .eq('creator_id', creatorId)
+      .gte('sale_date', prevFromDate)
+      .lt('sale_date', fromDate)
+
+    type PrevRow = { amount: number; payment_type: string; platform: string }
+    for (const r of (prevSales ?? []) as PrevRow[]) {
+      const amt = Number(r.amount)
+      const fee = r.platform === 'whop' ? WHOP_FEE : 0
+      prevCashCollected += amt
+      prevNetRevenue    += amt * (1 - fee)
+      if (r.payment_type === 'recurring') prevMrr += amt
+    }
+  }
+
   console.log('[revenue/summary] fromDate:', fromDate, '| totalSales:', rows.length, '| recurringCount:', rows.filter((r) => r.payment_type === 'recurring').length)
 
   const summary: RevenueSummary = {
-    period:       { from, to },
+    period:            { from, to },
     cashCollected,
     netRevenue,
     mrr,
@@ -161,6 +230,10 @@ export async function GET(req: Request) {
     newMrr,
     avgDealValue,
     totalSales,
+    prevCashCollected,
+    prevNetRevenue,
+    prevMrr,
+    daily,
     byTier,
     byPlatform,
     byCloser,

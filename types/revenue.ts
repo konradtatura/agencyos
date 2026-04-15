@@ -50,6 +50,12 @@ export interface RevenueSummary {
   newMrr:        number
   avgDealValue:  number
   totalSales:    number
+  // Previous-period values for delta badges
+  prevCashCollected: number
+  prevNetRevenue:    number
+  prevMrr:           number
+  // Daily breakdown for sparkline charts
+  daily: Array<{ date: string; gross: number; net: number; recurring: number }>
   byTier:    Array<{ tier: string;     total: number; count: number }>
   byPlatform: Array<{ platform: string; total: number; count: number }>
   byCloser:  Array<{ closer_id: string | null; closer_name: string | null; total: number; count: number; avg: number }>
