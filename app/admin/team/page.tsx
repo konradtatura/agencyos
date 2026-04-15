@@ -7,7 +7,7 @@ export type TeamMember = {
   id: string
   user_id: string
   creator_id: string
-  role: 'setter' | 'closer'
+  role: 'setter' | 'closer' | 'sales_admin'
   active: boolean
   created_at: string
   users: { id: string; full_name: string | null; email: string } | null

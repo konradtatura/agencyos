@@ -1,4 +1,4 @@
-export type Role = 'super_admin' | 'creator' | 'setter' | 'closer'
+export type Role = 'super_admin' | 'creator' | 'setter' | 'closer' | 'sales_admin'
 
 /**
  * Where each role lands after login or when redirected away from an
@@ -9,6 +9,7 @@ export const ROLE_HOME: Record<Role, string> = {
   creator:     '/dashboard',
   setter:      '/setter/dms',
   closer:      '/closer/crm',
+  sales_admin: '/sales-admin/forms',
 }
 
 /**
@@ -28,6 +29,7 @@ export const PROTECTED_PREFIXES = [
   '/dashboard',
   '/setter',
   '/closer',
+  '/sales-admin',
   '/onboarding',
 ]
 
@@ -53,7 +55,8 @@ export function isRole(value: unknown): value is Role {
     value === 'super_admin' ||
     value === 'creator' ||
     value === 'setter' ||
-    value === 'closer'
+    value === 'closer' ||
+    value === 'sales_admin'
   )
 }
 

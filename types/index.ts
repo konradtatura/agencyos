@@ -8,8 +8,8 @@
 // Shared primitives
 // ---------------------------------------------------------------------------
 
-export type UserRole = 'super_admin' | 'creator' | 'setter' | 'closer'
-export type TeamRole = 'setter' | 'closer'
+export type UserRole = 'super_admin' | 'creator' | 'setter' | 'closer' | 'sales_admin'
+export type TeamRole = 'setter' | 'closer' | 'sales_admin'
 export type Platform = 'instagram' | 'youtube' | 'stripe' | 'whop' | 'ghl'
 export type IntegrationStatus = 'active' | 'expired' | 'disconnected'
 

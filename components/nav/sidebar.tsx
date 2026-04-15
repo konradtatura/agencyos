@@ -161,6 +161,22 @@ const CLOSER_NAV: NavSection[] = [
   },
 ]
 
+const SALES_ADMIN_NAV: NavSection[] = [
+  {
+    title: 'Workspace',
+    items: [
+      { href: '/sales-admin/forms',         icon: ClipboardList, label: 'Forms'              },
+      { href: '/sales-admin/confirmations', icon: Phone,         label: 'Call Confirmations' },
+    ],
+  },
+  {
+    title: 'Accountability',
+    items: [
+      { href: '/sales-admin/stats', icon: BarChart2, label: 'My Stats' },
+    ],
+  },
+]
+
 // ── Role badge colours ────────────────────────────────────────────────────────
 
 const ROLE_BADGE: Record<string, { bg: string; color: string }> = {
@@ -168,6 +184,7 @@ const ROLE_BADGE: Record<string, { bg: string; color: string }> = {
   creator:     { bg: 'rgba(37,99,235,0.12)',  color: '#60a5fa' },
   setter:      { bg: 'rgba(16,185,129,0.12)', color: '#34d399' },
   closer:      { bg: 'rgba(245,158,11,0.12)', color: '#fbbf24' },
+  sales_admin: { bg: 'rgba(236,72,153,0.12)', color: '#f472b6' },
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -175,6 +192,7 @@ const ROLE_LABEL: Record<string, string> = {
   creator:     'Creator',
   setter:      'Setter',
   closer:      'Closer',
+  sales_admin: 'Sales Admin',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -191,7 +209,7 @@ function initials(fullName: string | null | undefined, email: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export type SidebarVariant = 'admin' | 'creator' | 'setter' | 'closer'
+export type SidebarVariant = 'admin' | 'creator' | 'setter' | 'closer' | 'sales_admin'
 
 export interface SidebarUser {
   email: string
@@ -229,10 +247,11 @@ export default function Sidebar({
   // ── Nav selection ──────────────────────────────────────────────────────────
   const navSections: NavSection[] = (() => {
     switch (variant) {
-      case 'admin':   return ADMIN_NAV
-      case 'creator': return creatorNav(dmUnreadCount, tallyNewCount)
-      case 'setter':  return SETTER_NAV
-      case 'closer':  return CLOSER_NAV
+      case 'admin':       return ADMIN_NAV
+      case 'creator':     return creatorNav(dmUnreadCount, tallyNewCount)
+      case 'setter':      return SETTER_NAV
+      case 'closer':      return CLOSER_NAV
+      case 'sales_admin': return SALES_ADMIN_NAV
     }
   })()
 

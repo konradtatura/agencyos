@@ -91,10 +91,16 @@ export async function updateSession(request: NextRequest) {
     return redirect(roleHome(role))
   }
 
+  // /sales-admin/* — sales_admin (or super_admin) only.
+  if (pathname.startsWith('/sales-admin') && role !== 'sales_admin' && role !== 'super_admin') {
+    return redirect(roleHome(role))
+  }
+
   // /dashboard/* — creator (or super_admin) only.
-  // Setters and closers have their own namespaces.
-  if (pathname.startsWith('/dashboard') && role === 'setter') return redirect('/setter/dms')
-  if (pathname.startsWith('/dashboard') && role === 'closer') return redirect('/closer/crm')
+  // Setters, closers, and sales_admins have their own namespaces.
+  if (pathname.startsWith('/dashboard') && role === 'setter')      return redirect('/setter/dms')
+  if (pathname.startsWith('/dashboard') && role === 'closer')      return redirect('/closer/crm')
+  if (pathname.startsWith('/dashboard') && role === 'sales_admin') return redirect('/sales-admin/forms')
 
   // Onboarding gate disabled — /onboarding page is being reworked.
   // Creators go straight to /dashboard regardless of onboarding_complete.

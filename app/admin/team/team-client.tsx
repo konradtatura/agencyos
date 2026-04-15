@@ -49,10 +49,11 @@ const LABEL_CLASS = 'mb-1.5 block text-[12.5px] font-medium text-[#9ca3af]'
 
 // ── Role badge ────────────────────────────────────────────────────────────────
 
-function RoleBadge({ role }: { role: 'setter' | 'closer' }) {
+function RoleBadge({ role }: { role: 'setter' | 'closer' | 'sales_admin' }) {
   const styles = {
-    setter: { bg: 'rgba(37,99,235,0.12)',   color: '#60a5fa' },
-    closer: { bg: 'rgba(139,92,246,0.12)', color: '#a78bfa' },
+    setter:      { bg: 'rgba(37,99,235,0.12)',   color: '#60a5fa' },
+    closer:      { bg: 'rgba(139,92,246,0.12)', color: '#a78bfa' },
+    sales_admin: { bg: 'rgba(236,72,153,0.12)', color: '#f472b6' },
   }
   const s = styles[role]
   return (
@@ -135,7 +136,7 @@ function InviteModal({
 }) {
   const [fullName,   setFullName]   = useState('')
   const [email,      setEmail]      = useState('')
-  const [role,       setRole]       = useState<'setter' | 'closer' | ''>('')
+  const [role,       setRole]       = useState<'setter' | 'closer' | 'sales_admin' | ''>('')
   const [creatorId,  setCreatorId]  = useState('')
   const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState<string | null>(null)
@@ -243,7 +244,7 @@ function InviteModal({
               <select
                 required
                 value={role}
-                onChange={(e) => setRole(e.target.value as 'setter' | 'closer')}
+                onChange={(e) => setRole(e.target.value as 'setter' | 'closer' | 'sales_admin')}
                 disabled={loading}
                 className={`${INPUT_CLASS} appearance-none pr-9`}
                 style={{ ...INPUT_STYLE, colorScheme: 'dark' }}
@@ -251,6 +252,7 @@ function InviteModal({
                 <option value="">Select a role…</option>
                 <option value="setter">Setter</option>
                 <option value="closer">Closer</option>
+                <option value="sales_admin">Sales Admin</option>
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b7280]" />
             </div>
@@ -340,7 +342,7 @@ export default function TeamClient({
   const router = useRouter()
   const [members,       setMembers]       = useState<TeamMember[]>(initialMembers)
   const [showInvite,    setShowInvite]    = useState(false)
-  const [roleFilter,    setRoleFilter]    = useState<'all' | 'setter' | 'closer'>('all')
+  const [roleFilter,    setRoleFilter]    = useState<'all' | 'setter' | 'closer' | 'sales_admin'>('all')
   const [creatorFilter, setCreatorFilter] = useState<string>('all')
   const [search,        setSearch]        = useState('')
 
@@ -364,9 +366,10 @@ export default function TeamClient({
     })
   }, [members, roleFilter, creatorFilter, search])
 
-  const setterCount = members.filter((m) => m.role === 'setter').length
-  const closerCount = members.filter((m) => m.role === 'closer').length
-  const activeCount = members.filter((m) => m.active).length
+  const setterCount      = members.filter((m) => m.role === 'setter').length
+  const closerCount      = members.filter((m) => m.role === 'closer').length
+  const salesAdminCount  = members.filter((m) => m.role === 'sales_admin').length
+  const activeCount      = members.filter((m) => m.active).length
 
   return (
     <div className="min-h-screen pb-16" style={{ backgroundColor: '#0a0f1e' }}>
@@ -393,10 +396,11 @@ export default function TeamClient({
       {/* Stat pills */}
       <div className="mb-6 flex flex-wrap gap-3">
         {[
-          { label: 'Total Members', value: members.length,  color: '#9ca3af' },
-          { label: 'Setters',       value: setterCount,     color: '#60a5fa' },
-          { label: 'Closers',       value: closerCount,     color: '#a78bfa' },
-          { label: 'Active',        value: activeCount,     color: '#34d399' },
+          { label: 'Total Members', value: members.length,    color: '#9ca3af' },
+          { label: 'Setters',       value: setterCount,       color: '#60a5fa' },
+          { label: 'Closers',       value: closerCount,       color: '#a78bfa' },
+          { label: 'Sales Admins',  value: salesAdminCount,   color: '#f472b6' },
+          { label: 'Active',        value: activeCount,       color: '#34d399' },
         ].map((s) => (
           <div
             key={s.label}
@@ -431,7 +435,7 @@ export default function TeamClient({
           className="flex items-center gap-0.5 rounded-xl p-1"
           style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
         >
-          {(['all', 'setter', 'closer'] as const).map((r) => (
+          {(['all', 'setter', 'closer', 'sales_admin'] as const).map((r) => (
             <button
               key={r}
               onClick={() => setRoleFilter(r)}
@@ -442,7 +446,7 @@ export default function TeamClient({
                   : { color: '#6b7280' }
               }
             >
-              {r === 'all' ? 'All Roles' : r}
+              {r === 'all' ? 'All Roles' : r === 'sales_admin' ? 'Sales Admin' : r}
             </button>
           ))}
         </div>
