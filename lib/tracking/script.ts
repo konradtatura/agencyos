@@ -14,14 +14,14 @@ export function getTrackingScript(locationId: string): string {
 (function () {
   var BASE_URL = '${BASE_URL}';
   var LOCATION_ID = '${locationId}';
-  var FUNNEL_NAME = '';  // Set this to identify the funnel, e.g. 'DM Organic'
+  var FUNNEL_NAME = '';  // Set this to match your funnel name, e.g. 'DM Organic' or 'Organic'
 
   function getSessionId() {
     var key = 'agos_sid';
-    var sid = sessionStorage.getItem(key);
+    var sid = localStorage.getItem(key);
     if (!sid) {
       sid = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      sessionStorage.setItem(key, sid);
+      localStorage.setItem(key, sid);
     }
     return sid;
   }
