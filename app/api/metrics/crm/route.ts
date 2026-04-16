@@ -55,6 +55,7 @@ export interface SetterRow {
 }
 
 export interface CrmMetricsResponse {
+  source: 'dm' | 'vsl' | 'all'
   period: {
     from: string
     to: string
@@ -338,9 +339,10 @@ export async function GET(req: NextRequest) {
 
   const { admin, creatorId: authCreatorId, role } = auth
   const params = req.nextUrl.searchParams
-  const range     = params.get('range') ?? '30d'
-  const fromParam = params.get('from')  ?? undefined
-  const toParam   = params.get('to')    ?? undefined
+  const range     = params.get('range')  ?? '30d'
+  const fromParam = params.get('from')   ?? undefined
+  const toParam   = params.get('to')     ?? undefined
+  const source    = (params.get('source') ?? 'all') as 'dm' | 'vsl' | 'all'
 
   // Super admin can pass creator_id directly if not impersonating
   const creatorId = (role === 'super_admin' ? params.get('creator_id') : null) ?? authCreatorId
@@ -373,18 +375,28 @@ export async function GET(req: NextRequest) {
   }
 
   // ── 3. Leads created in current period ────────────────────────────────────
-  const { data: leadsInPeriod } = await admin
+  const leadsInPeriodQ = admin
     .from('leads')
     .select('id, stage, pipeline_type, downgrade_stage, created_at')
     .eq('creator_id', creatorId)
     .gte('created_at', period.from.toISOString())
     .lte('created_at', period.to.toISOString())
 
+  if (source === 'vsl') leadsInPeriodQ.eq('lead_source_type', 'vsl_funnel')
+  if (source === 'dm')  leadsInPeriodQ.or('lead_source_type.is.null,lead_source_type.neq.vsl_funnel')
+
+  const { data: leadsInPeriod } = await leadsInPeriodQ
+
   // All leads for downgrade calc (no date filter)
-  const { data: allLeadsRaw } = await admin
+  const allLeadsRawQ = admin
     .from('leads')
     .select('id, pipeline_type, downgrade_stage, stage, created_at')
     .eq('creator_id', creatorId)
+
+  if (source === 'vsl') allLeadsRawQ.eq('lead_source_type', 'vsl_funnel')
+  if (source === 'dm')  allLeadsRawQ.or('lead_source_type.is.null,lead_source_type.neq.vsl_funnel')
+
+  const { data: allLeadsRaw } = await allLeadsRawQ
 
   const allLeads = allLeadsRaw ?? []
 
@@ -719,6 +731,7 @@ export async function GET(req: NextRequest) {
 
   // ── 17. Assemble response ─────────────────────────────────────────────────
   const response: CrmMetricsResponse = {
+    source,
     period: {
       from:      period.from.toISOString(),
       to:        period.to.toISOString(),

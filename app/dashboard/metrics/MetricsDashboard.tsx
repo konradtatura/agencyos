@@ -11,6 +11,7 @@ import type { CrmMetricsResponse, CloserRow, SetterRow } from '@/app/api/metrics
 import DateRangePicker from '@/components/ui/date-range-picker'
 
 type Range = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
+type Source = 'dm' | 'vsl' | 'all'
 
 const METRIC_DEFS = [
   { key: 'dm_to_qualified',     label: 'DM → Qualified',   benchmark: null },
@@ -281,10 +282,10 @@ function AlertBanner({ alerts }: { alerts: CrmMetricsResponse['alerts'] }) {
 
 // ── SECTION: Funnel Visualization ─────────────────────────────────────────────
 
-function FunnelViz({ funnel, rates }: { funnel: CrmMetricsResponse['funnel']; rates: CrmMetricsResponse['rates'] }) {
+function FunnelViz({ funnel, rates, source }: { funnel: CrmMetricsResponse['funnel']; rates: CrmMetricsResponse['rates']; source: Source }) {
   const benchmarks = { qualified: null, call_booked: 15, showed: 60, closed_won: 20 }
   const stages = [
-    { key: 'total_leads_entered', label: 'DM\'d',        count: funnel.total_leads_entered, convLabel: null },
+    { key: 'total_leads_entered', label: source === 'vsl' ? 'Booked' : 'DM\'d', count: funnel.total_leads_entered, convLabel: null },
     { key: 'qualified',           label: 'Qualified',    count: funnel.qualified,           convLabel: `${fmtPct(rates.dm_to_qualified)} qualified` },
     { key: 'call_booked',         label: 'Call Booked',  count: funnel.call_booked,         convLabel: `${fmtPct(rates.book_rate)} booked` },
     { key: 'showed',              label: 'Showed',       count: funnel.showed,              convLabel: `${fmtPct(rates.show_rate)} showed` },
@@ -715,10 +716,19 @@ function TrendCharts({
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
+const VSL_METRIC_KEYS = new Set(['show_rate', 'close_rate', 'offer_rate', 'no_show_rate', 'cancel_rate', 'dq_rate'])
+
+const SOURCE_OPTIONS: { value: Source; label: string }[] = [
+  { value: 'dm',  label: 'DM Pipeline' },
+  { value: 'vsl', label: 'VSL Funnel'  },
+  { value: 'all', label: 'Both'        },
+]
+
 export default function MetricsDashboard() {
   const [range, setRange]           = useState<Range>('30d')
   const [customFrom, setCustomFrom] = useState<string | undefined>()
   const [customTo,   setCustomTo]   = useState<string | undefined>()
+  const [source, setSource]         = useState<Source>('all')
   const [data, setData]             = useState<CrmMetricsResponse | null>(null)
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState<string | null>(null)
@@ -728,7 +738,7 @@ export default function MetricsDashboard() {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ range })
+      const params = new URLSearchParams({ range, source })
       if (range === 'custom' && customFrom) params.set('from', customFrom)
       if (range === 'custom' && customTo)   params.set('to', customTo)
       const res = await fetch(`/api/metrics/crm?${params}`)
@@ -743,7 +753,7 @@ export default function MetricsDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [range, customFrom, customTo])
+  }, [range, source, customFrom, customTo])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -775,6 +785,44 @@ export default function MetricsDashboard() {
         }}
       />
 
+      {/* Source selector */}
+      <div className="flex flex-col gap-2">
+        <div
+          className="inline-flex gap-1 rounded-lg p-1"
+          style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          {SOURCE_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setSource(value)}
+              className="rounded-md text-[13px] font-medium transition-colors"
+              style={{
+                backgroundColor: source === value ? '#2563eb' : 'transparent',
+                color:           source === value ? '#ffffff' : '#9ca3af',
+                border:          'none',
+                padding:         '5px 14px',
+                cursor:          'pointer',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {source === 'all' && (
+          <div
+            className="w-full rounded-lg px-3 py-2 text-[11px]"
+            style={{
+              backgroundColor: 'rgba(245,158,11,0.08)',
+              border:          '1px solid rgba(245,158,11,0.2)',
+              color:           '#fbbf24',
+            }}
+          >
+            Showing combined DM + VSL data — rates may be misleading. Use DM or VSL tabs for accurate per-funnel metrics.
+          </div>
+        )}
+      </div>
+
       {loading && <DashboardSkeleton />}
       {error && (
         <div className="rounded-xl p-6 text-center text-[13px] text-[#ef4444]" style={CARD}>
@@ -789,11 +837,13 @@ export default function MetricsDashboard() {
           {data.alerts.length > 0 && <AlertBanner alerts={data.alerts} />}
 
           {/* Funnel Visualization */}
-          <FunnelViz funnel={data.funnel} rates={data.rates} />
+          <FunnelViz funnel={data.funnel} rates={data.rates} source={source} />
 
-          {/* 10 Metric Cards */}
+          {/* Metric Cards — filtered by source */}
           <div className="grid grid-cols-5 gap-3">
-            {METRIC_DEFS.map(def => (
+            {METRIC_DEFS.filter(def =>
+              source === 'vsl' ? VSL_METRIC_KEYS.has(def.key) : true
+            ).map(def => (
               <MetricCard
                 key={def.key}
                 label={def.label}
