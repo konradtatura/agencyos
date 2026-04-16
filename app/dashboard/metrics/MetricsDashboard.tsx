@@ -12,14 +12,6 @@ import DateRangePicker from '@/components/ui/date-range-picker'
 
 type Range  = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
 type Source = 'dm' | 'vsl' | 'all'
-type Tier   = 'ht' | 'mt' | 'lt' | 'all'
-
-const TIER_OPTIONS: { value: Tier; label: string }[] = [
-  { value: 'all', label: 'All Tiers' },
-  { value: 'ht',  label: 'HT'        },
-  { value: 'mt',  label: 'MT'        },
-  { value: 'lt',  label: 'LT'        },
-]
 
 const METRIC_DEFS = [
   { key: 'dm_to_qualified',     label: 'DM → Qualified',   benchmark: null },
@@ -233,6 +225,154 @@ function EmptyState() {
       <p className="mt-1 text-[13px] text-[#6b7280]">
         Add your first lead to start tracking conversion metrics.
       </p>
+    </div>
+  )
+}
+
+// ── SECTION: Tier Breakdown ────────────────────────────────────────────────────
+
+const TIER_CONFIG = {
+  ht: { label: 'High Ticket', badge: 'HT', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.25)' },
+  mt: { label: 'Mid Ticket',  badge: 'MT', color: '#3b82f6', bg: 'rgba(59,130,246,0.08)',  border: 'rgba(59,130,246,0.25)'  },
+  lt: { label: 'Low Ticket',  badge: 'LT', color: '#8b5cf6', bg: 'rgba(139,92,246,0.08)',  border: 'rgba(139,92,246,0.25)'  },
+} as const
+
+type TierKey = keyof typeof TIER_CONFIG
+
+interface TierSnapshot {
+  leads: number
+  booked: number
+  showed: number
+  closed: number
+  close_rate: number
+  book_rate: number
+  show_rate: number
+}
+
+function TierCard({ tier, data, loading }: { tier: TierKey; data: TierSnapshot | null; loading: boolean }) {
+  const cfg = TIER_CONFIG[tier]
+
+  const steps = [
+    { label: 'Leads',  count: data?.leads  ?? 0 },
+    { label: 'Booked', count: data?.booked  ?? 0 },
+    { label: 'Showed', count: data?.showed  ?? 0 },
+    { label: 'Closed', count: data?.closed  ?? 0 },
+  ]
+
+  const max = steps[0].count || 1
+
+  return (
+    <div
+      className="flex-1 min-w-0 rounded-xl p-4 space-y-3"
+      style={{ backgroundColor: cfg.bg, border: `1px solid ${cfg.border}` }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <span
+          className="inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-bold tracking-widest"
+          style={{ backgroundColor: `${cfg.color}22`, color: cfg.color, border: `1px solid ${cfg.color}44` }}
+        >
+          {cfg.badge}
+        </span>
+        <span className="text-[11px] text-[#6b7280]">{cfg.label}</span>
+      </div>
+
+      {/* Funnel mini-bars */}
+      {loading ? (
+        <div className="space-y-2">
+          {steps.map((s) => (
+            <div key={s.label} className="h-5 rounded animate-pulse" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }} />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {steps.map((s) => {
+            const pct = max > 0 ? Math.round((s.count / max) * 100) : 0
+            return (
+              <div key={s.label} className="flex items-center gap-2">
+                <div className="w-12 shrink-0 text-[11px] text-[#6b7280]">{s.label}</div>
+                <div className="flex-1 relative h-4 rounded overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
+                  <div
+                    className="absolute inset-y-0 left-0 rounded"
+                    style={{ width: `${pct}%`, backgroundColor: cfg.color, opacity: 0.7 }}
+                  />
+                </div>
+                <div className="w-8 shrink-0 text-right font-mono text-[12px] font-semibold" style={{ color: cfg.color }}>
+                  {fmtNum(s.count)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Rates */}
+      {!loading && data && (
+        <div className="grid grid-cols-3 gap-2 pt-1 border-t" style={{ borderColor: `${cfg.color}22` }}>
+          {[
+            { label: 'Book %',  value: data.book_rate  },
+            { label: 'Show %',  value: data.show_rate  },
+            { label: 'Close %', value: data.close_rate },
+          ].map(r => (
+            <div key={r.label} className="text-center">
+              <div className="font-mono text-[15px] font-semibold" style={{ color: cfg.color }}>{fmtPct(r.value)}</div>
+              <div className="text-[9px] text-[#6b7280] uppercase tracking-wider">{r.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TierBreakdown({ range, source, customFrom, customTo }: {
+  range: Range
+  source: Source
+  customFrom?: string
+  customTo?: string
+}) {
+  const [tierData, setTierData] = useState<Record<TierKey, TierSnapshot | null>>({ ht: null, mt: null, lt: null })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+
+    const fetchTier = async (t: TierKey): Promise<TierSnapshot | null> => {
+      try {
+        const p = new URLSearchParams({ range, source, tier: t })
+        if (range === 'custom' && customFrom) p.set('from', customFrom)
+        if (range === 'custom' && customTo)   p.set('to',   customTo)
+        const res = await fetch(`/api/metrics/crm?${p}`)
+        if (!res.ok) return null
+        const d: CrmMetricsResponse = await res.json()
+        return {
+          leads:      d.funnel.total_leads_entered,
+          booked:     d.funnel.call_booked,
+          showed:     d.funnel.showed,
+          closed:     d.funnel.closed_won,
+          close_rate: d.rates.close_rate,
+          book_rate:  d.rates.book_rate,
+          show_rate:  d.rates.show_rate,
+        }
+      } catch {
+        return null
+      }
+    }
+
+    Promise.all([fetchTier('ht'), fetchTier('mt'), fetchTier('lt')]).then(([ht, mt, lt]) => {
+      setTierData({ ht, mt, lt })
+      setLoading(false)
+    })
+  }, [range, source, customFrom, customTo])
+
+  return (
+    <div className="rounded-xl p-4" style={CARD}>
+      <p className="mb-4 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Tier Breakdown</p>
+      <div className="flex gap-3">
+        {(['ht', 'mt', 'lt'] as TierKey[]).map(t => (
+          <TierCard key={t} tier={t} data={tierData[t]} loading={loading} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -737,7 +877,6 @@ export default function MetricsDashboard() {
   const [customFrom, setCustomFrom] = useState<string | undefined>()
   const [customTo,   setCustomTo]   = useState<string | undefined>()
   const [source, setSource]         = useState<Source>('all')
-  const [tier,   setTier]           = useState<Tier>('all')
   const [data, setData]             = useState<CrmMetricsResponse | null>(null)
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState<string | null>(null)
@@ -747,7 +886,7 @@ export default function MetricsDashboard() {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ range, source, tier })
+      const params = new URLSearchParams({ range, source })
       if (range === 'custom' && customFrom) params.set('from', customFrom)
       if (range === 'custom' && customTo)   params.set('to', customTo)
       const res = await fetch(`/api/metrics/crm?${params}`)
@@ -762,7 +901,7 @@ export default function MetricsDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [range, source, tier, customFrom, customTo])
+  }, [range, source, customFrom, customTo])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -794,67 +933,34 @@ export default function MetricsDashboard() {
         }}
       />
 
-      {/* Source + Tier selectors */}
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap gap-2">
-          {/* Source */}
-          <div
-            className="inline-flex gap-1 rounded-lg p-1"
-            style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            {SOURCE_OPTIONS.map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => setSource(value)}
-                className="rounded-md text-[13px] font-medium transition-colors"
-                style={{
-                  backgroundColor: source === value ? '#2563eb' : 'transparent',
-                  color:           source === value ? '#ffffff' : '#9ca3af',
-                  border:          'none',
-                  padding:         '5px 14px',
-                  cursor:          'pointer',
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Tier */}
-          <div
-            className="inline-flex gap-1 rounded-lg p-1"
-            style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            {TIER_OPTIONS.map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => setTier(value)}
-                className="rounded-md text-[13px] font-medium transition-colors"
-                style={{
-                  backgroundColor: tier === value ? '#7c3aed' : 'transparent',
-                  color:           tier === value ? '#ffffff' : '#9ca3af',
-                  border:          'none',
-                  padding:         '5px 14px',
-                  cursor:          'pointer',
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+      {/* Source selector */}
+      <div className="flex items-center gap-3">
+        <div
+          className="inline-flex gap-1 rounded-lg p-1"
+          style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          {SOURCE_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setSource(value)}
+              className="rounded-md text-[13px] font-medium transition-colors"
+              style={{
+                backgroundColor: source === value ? '#2563eb' : 'transparent',
+                color:           source === value ? '#ffffff' : '#9ca3af',
+                border:          'none',
+                padding:         '5px 14px',
+                cursor:          'pointer',
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {source === 'all' && (
-          <div
-            className="w-full rounded-lg px-3 py-2 text-[11px]"
-            style={{
-              backgroundColor: 'rgba(245,158,11,0.08)',
-              border:          '1px solid rgba(245,158,11,0.2)',
-              color:           '#fbbf24',
-            }}
-          >
-            Showing combined DM + VSL data — rates may be misleading. Use DM or VSL tabs for accurate per-funnel metrics.
-          </div>
+          <span className="text-[11px]" style={{ color: '#fbbf24' }}>
+            Combined view — use DM or VSL for accurate per-funnel rates
+          </span>
         )}
       </div>
 
@@ -873,6 +979,9 @@ export default function MetricsDashboard() {
 
           {/* Funnel Visualization */}
           <FunnelViz funnel={data.funnel} rates={data.rates} source={source} />
+
+          {/* Tier Breakdown — HT / MT / LT side-by-side */}
+          <TierBreakdown range={range} source={source} customFrom={customFrom} customTo={customTo} />
 
           {/* Metric Cards — filtered by source */}
           <div className="grid grid-cols-5 gap-3">
