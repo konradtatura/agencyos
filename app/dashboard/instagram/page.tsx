@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getCreatorId } from '@/lib/get-creator-id'
 import PageHeader from '@/components/ui/page-header'
 import SyncBar from './sync-bar'
 import InstagramTabs from './instagram-tabs'
@@ -16,39 +16,31 @@ import ExportButton from './export-button'
 const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 export default async function InstagramPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) return null
-
   const admin = createAdminClient()
 
-  // ── Resolve creator profile ───────────────────────────────────────────────
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
+  // Resolves to impersonated creator ID when super_admin is viewing a creator,
+  // otherwise falls back to the logged-in user's own creator profile.
+  const creatorId = await getCreatorId()
+
+  if (!creatorId) return null
 
   // ── Integration status ────────────────────────────────────────────────────
-  const { data: integration } = profile
-    ? await admin
-        .from('integrations')
-        .select('status, meta')
-        .eq('creator_id', profile.id)
-        .eq('platform', 'instagram')
-        .maybeSingle()
-    : { data: null }
+  const { data: integration } = await admin
+      .from('integrations')
+      .select('status, meta')
+      .eq('creator_id', creatorId)
+      .eq('platform', 'instagram')
+      .maybeSingle()
 
   const connected   = integration?.status === 'active'
   const ig_username = (integration?.meta as { username?: string } | null)?.username ?? null
 
   // ── Last sync timestamp ───────────────────────────────────────────────────
-  const { data: latestSnapshot } = (profile && connected)
+  const { data: latestSnapshot } = connected
     ? await admin
         .from('instagram_account_snapshots')
         .select('created_at')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .order('date', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -60,28 +52,28 @@ export default async function InstagramPage() {
     : null
 
   // ── Account row ───────────────────────────────────────────────────────────
-  const { data: igAccount } = (profile && connected)
+  const { data: igAccount } = connected
     ? await admin
         .from('instagram_accounts')
         .select('followers_count, media_count, username, name, profile_picture_url')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .maybeSingle()
     : { data: null }
 
   // ── Synced post count ─────────────────────────────────────────────────────
-  const { count: syncedPostCount } = (profile && connected)
+  const { count: syncedPostCount } = connected
     ? await admin
         .from('instagram_posts')
         .select('*', { count: 'exact', head: true })
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
     : { count: null }
 
   // ── 60 days of snapshots (for 30d current + 30d previous comparison) ──────
-  const { data: rawSnapshots } = (profile && connected && igAccount)
+  const { data: rawSnapshots } = (connected && igAccount)
     ? await admin
         .from('instagram_account_snapshots')
         .select('date, followers_count, reach, unfollows, reach_7d, reach_30d, profile_views_7d, profile_views_30d, accounts_engaged_7d, accounts_engaged_30d, website_clicks_7d, website_clicks_30d, follower_source')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .order('date', { ascending: false })
         .limit(90)
     : { data: null }
@@ -100,11 +92,11 @@ export default async function InstagramPage() {
     new_followers_7d: null,  new_followers_30d: null,
   }
 
-  if (profile && connected && igAccount) {
+  if (connected && igAccount) {
     const { data: posts } = await admin
       .from('instagram_posts')
       .select('id, posted_at')
-      .eq('creator_id', profile.id)
+      .eq('creator_id', creatorId)
       .order('posted_at', { ascending: false })
 
     if (posts && posts.length > 0) {

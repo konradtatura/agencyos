@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getCreatorId } from '@/lib/get-creator-id'
 import PageHeader from '@/components/ui/page-header'
 import SyncBar from '../sync-bar'
 import InstagramTabs from '../instagram-tabs'
@@ -12,38 +12,27 @@ export default async function ContentPage({
 }) {
   // searchParams may be a Promise in Next.js 15; await defensively
   const params = searchParams && 'then' in searchParams ? await searchParams : searchParams
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
   const admin = createAdminClient()
-
-  // ── Resolve creator ───────────────────────────────────────────────────────
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
+  const creatorId = await getCreatorId()
+  if (!creatorId) return null
 
   // ── Integration status ────────────────────────────────────────────────────
-  const { data: integration } = profile
-    ? await admin
+  const { data: integration } = await admin
         .from('integrations')
         .select('status, meta')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .eq('platform', 'instagram')
         .maybeSingle()
-    : { data: null }
 
   const connected   = integration?.status === 'active'
   const ig_username = (integration?.meta as { username?: string } | null)?.username ?? null
 
   // ── Last sync timestamp ───────────────────────────────────────────────────
-  const { data: latestSnapshot } = (profile && connected)
+  const { data: latestSnapshot } = connected
     ? await admin
         .from('instagram_account_snapshots')
         .select('created_at')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .order('date', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -57,11 +46,11 @@ export default async function ContentPage({
   const syncStatus = { connected, ig_username, last_sync, next_sync }
 
   // ── Posts ─────────────────────────────────────────────────────────────────
-  const { data: rawPosts } = (profile && connected)
+  const { data: rawPosts } = connected
     ? await admin
         .from('instagram_posts')
         .select('id, ig_media_id, caption, media_type, media_url, thumbnail_url, permalink, posted_at, transcript_status, is_trial, reel_group_id')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .order('posted_at', { ascending: false })
     : { data: null }
 
@@ -85,13 +74,11 @@ export default async function ContentPage({
           .select('post_id, transcript_text')
           .in('post_id', postIds)
       : Promise.resolve({ data: null }),
-    profile
-      ? admin
-          .from('reel_groups')
-          .select('id, name, created_at')
-          .eq('creator_id', profile.id)
-          .order('created_at', { ascending: true })
-      : Promise.resolve({ data: null }),
+    admin
+        .from('reel_groups')
+        .select('id, name, created_at')
+        .eq('creator_id', creatorId)
+        .order('created_at', { ascending: true }),
   ])
 
   // Deduplicate: first occurrence per post_id = latest sync

@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getCreatorId } from '@/lib/get-creator-id'
 import PageHeader from '@/components/ui/page-header'
 import SyncBar from '../sync-bar'
 import InstagramTabs from '../instagram-tabs'
@@ -9,37 +9,27 @@ import type { ContentAnalysis } from '@/lib/analysis/content-analyzer'
 import type { PostRow } from '../content/posts-table'
 
 export default async function AnalysisPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
   const admin = createAdminClient()
+  const creatorId = await getCreatorId()
+  if (!creatorId) return null
 
-  // ── Creator + integration ──────────────────────────────────────────────────
-  const { data: profile } = await admin
-    .from('creator_profiles')
-    .select('id')
-    .eq('user_id', user.id)
-    .single()
-
-  const { data: integration } = profile
-    ? await admin
+  // ── Integration ────────────────────────────────────────────────────────────
+  const { data: integration } = await admin
         .from('integrations')
         .select('status, meta')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .eq('platform', 'instagram')
         .maybeSingle()
-    : { data: null }
 
   const connected   = integration?.status === 'active'
   const ig_username = (integration?.meta as { username?: string } | null)?.username ?? null
 
   // ── Sync bar data ──────────────────────────────────────────────────────────
-  const { data: latestSnapshot } = (profile && connected)
+  const { data: latestSnapshot } = connected
     ? await admin
         .from('instagram_account_snapshots')
         .select('created_at')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .order('date', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -53,21 +43,21 @@ export default async function AnalysisPage() {
   const syncStatus = { connected, ig_username, last_sync, next_sync }
 
   // ── Count transcribed reels ────────────────────────────────────────────────
-  const { count: transcribedCount } = (profile && connected)
+  const { count: transcribedCount } = connected
     ? await admin
         .from('instagram_posts')
         .select('*', { count: 'exact', head: true })
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .eq('media_type', 'VIDEO')
         .eq('transcript_status', 'done')
     : { count: 0 }
 
   // ── Posts + metrics for Content Performance Matrix ────────────────────────
-  const { data: rawPosts } = (profile && connected)
+  const { data: rawPosts } = connected
     ? await admin
         .from('instagram_posts')
         .select('id, ig_media_id, caption, media_type, media_url, thumbnail_url, permalink, posted_at, transcript_status, is_trial, reel_group_id')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .order('posted_at', { ascending: false })
     : { data: null }
 
@@ -120,15 +110,13 @@ export default async function AnalysisPage() {
   })
 
   // ── Analysis history (all, newest first) ──────────────────────────────────
-  const { data: rawHistory } = profile
-    ? await admin
+  const { data: rawHistory } = await admin
         .from('content_analyses')
         .select('id, created_at, post_count, analysis_json')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .eq('platform', 'instagram')
         .order('created_at', { ascending: false })
         .limit(50)
-    : { data: null }
 
   const history: HistoryItem[] = (rawHistory ?? []).map((row) => ({
     id:         row.id,
@@ -142,15 +130,13 @@ export default async function AnalysisPage() {
 
   // ── Rate limit: max 3 analyses per rolling 7-day window ───────────────────
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  const { data: weeklyRuns } = profile
-    ? await admin
+  const { data: weeklyRuns } = await admin
         .from('content_analyses')
         .select('created_at')
-        .eq('creator_id', profile.id)
+        .eq('creator_id', creatorId)
         .eq('platform', 'instagram')
         .gte('created_at', sevenDaysAgo)
         .order('created_at', { ascending: true })
-    : { data: null }
 
   const weeklyCount = weeklyRuns?.length ?? 0
   // Reset date = when the oldest-of-3 run drops out of the 7-day window
