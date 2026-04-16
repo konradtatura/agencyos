@@ -58,22 +58,36 @@ export default async function ContentPage({
 
   // ── Latest metrics per post ───────────────────────────────────────────────
   // Fetch all metrics rows for these posts, then keep only the latest per post.
+  // Chunked to 100 IDs per request to avoid URL length limits.
   const postIds = posts.map((p) => p.id)
 
-  const [{ data: rawMetrics }, { data: rawTranscripts }, { data: rawGroups }] = await Promise.all([
-    postIds.length
-      ? admin
-          .from('instagram_post_metrics')
-          .select('post_id, reach, saved, shares, views, like_count, comments_count, total_interactions, profile_visits, follows_count, replays_count, avg_watch_time_ms, total_watch_time_ms, reposts_count, non_follower_reach, avg_watch_time_manual, synced_at')
-          .in('post_id', postIds)
-          .order('synced_at', { ascending: false })
-      : Promise.resolve({ data: null }),
-    postIds.length
-      ? admin
-          .from('post_transcripts')
-          .select('post_id, transcript_text')
-          .in('post_id', postIds)
-      : Promise.resolve({ data: null }),
+  async function fetchInChunks<T>(
+    ids: string[],
+    fetcher: (chunk: string[]) => Promise<{ data: T[] | null }>,
+  ): Promise<T[]> {
+    if (!ids.length) return []
+    const CHUNK = 100
+    const chunks = Array.from({ length: Math.ceil(ids.length / CHUNK) }, (_, i) =>
+      ids.slice(i * CHUNK, i * CHUNK + CHUNK)
+    )
+    const results = await Promise.all(chunks.map(fetcher))
+    return results.flatMap((r) => r.data ?? [])
+  }
+
+  const [rawMetrics, rawTranscriptsArr, { data: rawGroups }] = await Promise.all([
+    fetchInChunks(postIds, (chunk) =>
+      admin
+        .from('instagram_post_metrics')
+        .select('post_id, reach, saved, shares, views, like_count, comments_count, total_interactions, profile_visits, follows_count, replays_count, avg_watch_time_ms, total_watch_time_ms, reposts_count, non_follower_reach, avg_watch_time_manual, synced_at')
+        .in('post_id', chunk)
+        .order('synced_at', { ascending: false })
+    ),
+    fetchInChunks(postIds, (chunk) =>
+      admin
+        .from('post_transcripts')
+        .select('post_id, transcript_text')
+        .in('post_id', chunk)
+    ),
     admin
         .from('reel_groups')
         .select('id, name, created_at')
@@ -157,7 +171,7 @@ export default async function ContentPage({
 
   // ── Transcript text map (post_id → text) ─────────────────────────────────
   const transcriptMap: Record<string, string> = {}
-  for (const t of rawTranscripts ?? []) {
+  for (const t of rawTranscriptsArr) {
     if (t.transcript_text != null) {
       transcriptMap[t.post_id] = t.transcript_text
     }

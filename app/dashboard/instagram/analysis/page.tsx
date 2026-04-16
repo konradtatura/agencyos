@@ -63,17 +63,30 @@ export default async function AnalysisPage() {
 
   const matrixPostIds = (rawPosts ?? []).map((p) => p.id)
 
-  const { data: rawMetrics } = matrixPostIds.length
-    ? await admin
-        .from('instagram_post_metrics')
-        .select('post_id, reach, saved, shares, views, like_count, comments_count, total_interactions, profile_visits, follows_count, replays_count, avg_watch_time_ms, total_watch_time_ms, reposts_count, non_follower_reach, avg_watch_time_manual, synced_at')
-        .in('post_id', matrixPostIds)
-        .order('synced_at', { ascending: false })
-    : { data: null }
+  async function fetchInChunks<T>(
+    ids: string[],
+    fetcher: (chunk: string[]) => Promise<{ data: T[] | null }>,
+  ): Promise<T[]> {
+    if (!ids.length) return []
+    const CHUNK = 100
+    const chunks = Array.from({ length: Math.ceil(ids.length / CHUNK) }, (_, i) =>
+      ids.slice(i * CHUNK, i * CHUNK + CHUNK)
+    )
+    const results = await Promise.all(chunks.map(fetcher))
+    return results.flatMap((r) => r.data ?? [])
+  }
+
+  const rawMetrics = await fetchInChunks(matrixPostIds, (chunk) =>
+    admin
+      .from('instagram_post_metrics')
+      .select('post_id, reach, saved, shares, views, like_count, comments_count, total_interactions, profile_visits, follows_count, replays_count, avg_watch_time_ms, total_watch_time_ms, reposts_count, non_follower_reach, avg_watch_time_manual, synced_at')
+      .in('post_id', chunk)
+      .order('synced_at', { ascending: false })
+  )
 
   // Deduplicate: keep latest metrics snapshot per post
   const matrixMetricsMap = new Map<string, Record<string, unknown>>()
-  for (const m of rawMetrics ?? []) {
+  for (const m of rawMetrics) {
     if (!matrixMetricsMap.has(m.post_id)) matrixMetricsMap.set(m.post_id, m as Record<string, unknown>)
   }
 
