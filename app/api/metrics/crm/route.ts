@@ -279,14 +279,20 @@ function buildFunnelFromHistory(
   const showed      = countAtOrPast('showed')
   const closed_won  = countAtOrPast('closed_won')
 
-  // disqualified: terminal branch — count directly, no linear fallback
+  // disqualified: terminal branch — count from history OR current stage
   const disqualified = (() => {
-    const fromHistory = countFromHistory('disqualified')
-    if (fromHistory > 0) return fromHistory
     const dqStages: string[] = [...STAGE_VALUES.disqualified]
-    return allLeads.filter(l =>
-      periodLeadIds.has(l.id) && dqStages.includes(l.stage ?? '')
-    ).length
+    const ids = new Set<string>()
+    for (const stageName of dqStages) {
+      const set = reached[stageName]
+      if (set) set.forEach(id => ids.add(id))
+    }
+    // fallback: current stage is disqualified
+    for (const lead of allLeads) {
+      if (!periodLeadIds.has(lead.id)) continue
+      if (dqStages.includes(lead.stage ?? '')) ids.add(lead.id)
+    }
+    return ids.size
   })()
 
   // Downgrade closed: pipeline_type='downgrade' AND downgrade_stage='closed'
