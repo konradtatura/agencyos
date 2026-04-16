@@ -39,7 +39,9 @@ interface GhlPayload {
 
   // Sub-account / location mapping → creator
   location_id?: string
+  locationId?: string      // GHL also sends camelCase in some workflow versions
   offer_tier?: string
+  lead_source_type?: string  // custom data field — 'vsl_funnel' | 'organic' | 'dm'
 
   // Custom fields — GHL sends these in different shapes depending on version
   custom_fields?: GhlCustomField[]
@@ -130,7 +132,7 @@ export async function POST(req: NextRequest) {
   const supabase = createAdminClient()
 
   // --- Resolve creator ---
-  const creatorId = await resolveGhlCreatorId(supabase, body.location_id)
+  const creatorId = await resolveGhlCreatorId(supabase, body.location_id ?? body.locationId)
   if (!creatorId) {
     console.error('[ghl-webhook] could not resolve creator_id — set GHL_DEFAULT_CREATOR_ID or GHL_LOCATION_ID')
     return NextResponse.json({ error: 'Creator not found' }, { status: 422 })
@@ -143,6 +145,14 @@ export async function POST(req: NextRequest) {
   const rawStartTime = body.calendar?.startTime ?? body.start_time ?? body.scheduled_at ?? null
   const bookedAt = rawStartTime ? new Date(rawStartTime).toISOString() : null
   const tallyAnswers = extractTallyAnswers(body)
+
+  // Resolve lead source — prefer explicit custom data, fall back to vsl_funnel
+  const VALID_SOURCES = ['vsl_funnel', 'organic', 'dm', 'story', 'reel', 'manual'] as const
+  type LeadSource = typeof VALID_SOURCES[number]
+  const rawSource = body.lead_source_type ?? body.customData?.lead_source_type
+  const leadSourceType: LeadSource = (VALID_SOURCES as readonly string[]).includes(rawSource ?? '')
+    ? (rawSource as LeadSource)
+    : 'vsl_funnel'
 
   // --- Upsert: check if lead with same email already exists for this creator ---
   let existingLeadId: string | null = null
@@ -167,7 +177,7 @@ export async function POST(req: NextRequest) {
         .from('leads')
         .update({
           stage: 'call_booked',
-          lead_source_type: 'vsl_funnel',
+          lead_source_type: leadSourceType,
           ghl_contact_id: ghlContactId,
           booked_at: bookedAt,
           tally_answers: tallyAnswers,
@@ -206,7 +216,7 @@ export async function POST(req: NextRequest) {
             ? (body.offer_tier as 'ht' | 'mt' | 'lt')
             : 'ht',
           pipeline_type: 'main',
-          lead_source_type: 'vsl_funnel',
+          lead_source_type: leadSourceType,
           ghl_contact_id: ghlContactId,
           booked_at: bookedAt,
           tally_answers: tallyAnswers,

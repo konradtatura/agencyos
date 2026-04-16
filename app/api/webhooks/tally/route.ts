@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   // -- Find the matching tally_form --
   const { data: form } = await admin
     .from('tally_forms')
-    .select('id, creator_id, name, is_qualification_form')
+    .select('id, creator_id, name, is_qualification_form, lead_source_type')
     .eq('tally_form_id', formId)
     .maybeSingle()
 
@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
       ig_handle:       ig   ?? null,
       phone:           phone ?? null,
       stage:           'dmd',
-      lead_source_type: 'organic',
+      lead_source_type: (form.lead_source_type as string) ?? 'organic',
       pipeline_type:   'main',
     })
     .select('id')

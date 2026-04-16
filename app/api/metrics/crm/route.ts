@@ -202,9 +202,9 @@ function resolvePeriod(range: string, fromParam?: string, toParam?: string): Per
 const STAGE_VALUES = {
   qualified:    ['Qualified', 'qualified'],
   call_booked:  ['call_booked', 'Booked', 'Booked MT Call'],
-  showed:       ['showed'],
+  showed:       ['showed', 'No-close'],
   closed_won:   ['High Ticket PiF', 'High Ticket Split', 'Mid Ticket PiF', 'Mid Ticket Split', 'Low Ticket', 'closed_won'],
-  disqualified: ['Disqualified', 'disqualified'],
+  disqualified: ['Disqualified', 'disqualified', 'MT Budget'],
 } as const
 
 // Linear progression order (each slot = all real values at that level).
