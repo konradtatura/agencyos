@@ -10,8 +10,16 @@ import { Skeleton } from '@/components/ui/skeleton'
 import type { CrmMetricsResponse, CloserRow, SetterRow } from '@/app/api/metrics/crm/route'
 import DateRangePicker from '@/components/ui/date-range-picker'
 
-type Range = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
+type Range  = 'today' | '7d' | '30d' | 'month' | 'all' | 'custom'
 type Source = 'dm' | 'vsl' | 'all'
+type Tier   = 'ht' | 'mt' | 'lt' | 'all'
+
+const TIER_OPTIONS: { value: Tier; label: string }[] = [
+  { value: 'all', label: 'All Tiers' },
+  { value: 'ht',  label: 'HT'        },
+  { value: 'mt',  label: 'MT'        },
+  { value: 'lt',  label: 'LT'        },
+]
 
 const METRIC_DEFS = [
   { key: 'dm_to_qualified',     label: 'DM → Qualified',   benchmark: null },
@@ -729,6 +737,7 @@ export default function MetricsDashboard() {
   const [customFrom, setCustomFrom] = useState<string | undefined>()
   const [customTo,   setCustomTo]   = useState<string | undefined>()
   const [source, setSource]         = useState<Source>('all')
+  const [tier,   setTier]           = useState<Tier>('all')
   const [data, setData]             = useState<CrmMetricsResponse | null>(null)
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState<string | null>(null)
@@ -738,7 +747,7 @@ export default function MetricsDashboard() {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ range, source })
+      const params = new URLSearchParams({ range, source, tier })
       if (range === 'custom' && customFrom) params.set('from', customFrom)
       if (range === 'custom' && customTo)   params.set('to', customTo)
       const res = await fetch(`/api/metrics/crm?${params}`)
@@ -753,7 +762,7 @@ export default function MetricsDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [range, source, customFrom, customTo])
+  }, [range, source, tier, customFrom, customTo])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -785,28 +794,54 @@ export default function MetricsDashboard() {
         }}
       />
 
-      {/* Source selector */}
+      {/* Source + Tier selectors */}
       <div className="flex flex-col gap-2">
-        <div
-          className="inline-flex gap-1 rounded-lg p-1"
-          style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.06)' }}
-        >
-          {SOURCE_OPTIONS.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => setSource(value)}
-              className="rounded-md text-[13px] font-medium transition-colors"
-              style={{
-                backgroundColor: source === value ? '#2563eb' : 'transparent',
-                color:           source === value ? '#ffffff' : '#9ca3af',
-                border:          'none',
-                padding:         '5px 14px',
-                cursor:          'pointer',
-              }}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-wrap gap-2">
+          {/* Source */}
+          <div
+            className="inline-flex gap-1 rounded-lg p-1"
+            style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            {SOURCE_OPTIONS.map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setSource(value)}
+                className="rounded-md text-[13px] font-medium transition-colors"
+                style={{
+                  backgroundColor: source === value ? '#2563eb' : 'transparent',
+                  color:           source === value ? '#ffffff' : '#9ca3af',
+                  border:          'none',
+                  padding:         '5px 14px',
+                  cursor:          'pointer',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tier */}
+          <div
+            className="inline-flex gap-1 rounded-lg p-1"
+            style={{ backgroundColor: '#1f2937', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            {TIER_OPTIONS.map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setTier(value)}
+                className="rounded-md text-[13px] font-medium transition-colors"
+                style={{
+                  backgroundColor: tier === value ? '#7c3aed' : 'transparent',
+                  color:           tier === value ? '#ffffff' : '#9ca3af',
+                  border:          'none',
+                  padding:         '5px 14px',
+                  cursor:          'pointer',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {source === 'all' && (

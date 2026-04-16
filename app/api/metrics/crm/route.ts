@@ -56,6 +56,7 @@ export interface SetterRow {
 
 export interface CrmMetricsResponse {
   source: 'dm' | 'vsl' | 'all'
+  tier:   'ht' | 'mt' | 'lt' | 'all'
   period: {
     from: string
     to: string
@@ -241,39 +242,42 @@ function buildFunnelFromHistory(
     }
   }
 
-  // Count unique lead IDs across all real DB values that map to a logical stage
-  const countFromHistory = (logicalStage: keyof typeof STAGE_VALUES): number => {
+  const periodLeadIds = new Set(leadsInPeriod.map(l => l.id))
+
+  // Cumulative count: leads that reached this stage OR any later stage.
+  // This handles GHL skipping stages (e.g. Booked → Closed without a Showed entry).
+  // If someone closed, they must have showed; if they booked, they must have been qualified.
+  const countAtOrPast = (logicalStage: keyof typeof STAGE_VALUES): number => {
+    const targetIdx = STAGE_ORDER.findIndex(g =>
+      g.some(v => (STAGE_VALUES[logicalStage] as readonly string[]).includes(v))
+    )
+    if (targetIdx < 0) return 0
     const ids = new Set<string>()
-    for (const realStage of STAGE_VALUES[logicalStage]) {
-      const set = reached[realStage]
-      if (set) set.forEach(id => ids.add(id))
+
+    // From history: accumulate all stages at or past target level
+    for (let i = targetIdx; i < STAGE_ORDER.length; i++) {
+      for (const stageName of STAGE_ORDER[i]) {
+        const set = reached[stageName]
+        if (set) set.forEach(id => ids.add(id))
+      }
     }
+
+    // Also capture period leads whose current stage is at or past target
+    // (handles leads with no stage history at all)
+    for (const lead of allLeads) {
+      if (!periodLeadIds.has(lead.id)) continue
+      const currentIdx = stageOrderIdx(lead.stage ?? '')
+      if (currentIdx >= targetIdx) ids.add(lead.id)
+    }
+
     return ids.size
   }
 
-  const periodLeadIds = new Set(leadsInPeriod.map(l => l.id))
-
-  // Per-stage count: history first, then fallback to current stage on leads in period
-  const stageCount = (logicalStage: keyof typeof STAGE_VALUES): number => {
-    const fromHistory = countFromHistory(logicalStage)
-    if (fromHistory > 0) return fromHistory
-    // Fallback: lead's current stage is at or past the target stage in the linear order
-    const targetIdx = STAGE_ORDER.findIndex(g =>
-      (STAGE_VALUES[logicalStage] as readonly string[]).every(v => g.includes(v)) ||
-      g.some(v => (STAGE_VALUES[logicalStage] as readonly string[]).includes(v))
-    )
-    return allLeads.filter(l => {
-      if (!periodLeadIds.has(l.id)) return false
-      const currentIdx = stageOrderIdx(l.stage ?? '')
-      return targetIdx >= 0 && currentIdx >= targetIdx
-    }).length
-  }
-
   const total_leads_entered = leadsInPeriod.length
-  const qualified    = stageCount('qualified')
-  const call_booked  = stageCount('call_booked')
-  const showed       = stageCount('showed')
-  const closed_won   = stageCount('closed_won')
+  const qualified   = countAtOrPast('qualified')
+  const call_booked = countAtOrPast('call_booked')
+  const showed      = countAtOrPast('showed')
+  const closed_won  = countAtOrPast('closed_won')
 
   // disqualified: terminal branch — count directly, no linear fallback
   const disqualified = (() => {
@@ -343,6 +347,7 @@ export async function GET(req: NextRequest) {
   const fromParam = params.get('from')   ?? undefined
   const toParam   = params.get('to')     ?? undefined
   const source    = (params.get('source') ?? 'all') as 'dm' | 'vsl' | 'all'
+  const tier      = (params.get('tier')   ?? 'all') as 'ht' | 'mt' | 'lt' | 'all'
 
   // Super admin can pass creator_id directly if not impersonating
   const creatorId = (role === 'super_admin' ? params.get('creator_id') : null) ?? authCreatorId
@@ -384,6 +389,7 @@ export async function GET(req: NextRequest) {
 
   if (source === 'vsl') leadsInPeriodQ.eq('lead_source_type', 'vsl_funnel')
   if (source === 'dm')  leadsInPeriodQ.or('lead_source_type.is.null,lead_source_type.neq.vsl_funnel')
+  if (tier !== 'all')   leadsInPeriodQ.eq('offer_tier', tier)
 
   const { data: leadsInPeriod } = await leadsInPeriodQ
 
@@ -395,6 +401,7 @@ export async function GET(req: NextRequest) {
 
   if (source === 'vsl') allLeadsRawQ.eq('lead_source_type', 'vsl_funnel')
   if (source === 'dm')  allLeadsRawQ.or('lead_source_type.is.null,lead_source_type.neq.vsl_funnel')
+  if (tier !== 'all')   allLeadsRawQ.eq('offer_tier', tier)
 
   const { data: allLeadsRaw } = await allLeadsRawQ
 
@@ -732,6 +739,7 @@ export async function GET(req: NextRequest) {
   // ── 17. Assemble response ─────────────────────────────────────────────────
   const response: CrmMetricsResponse = {
     source,
+    tier,
     period: {
       from:      period.from.toISOString(),
       to:        period.to.toISOString(),
