@@ -202,7 +202,7 @@ function resolvePeriod(range: string, fromParam?: string, toParam?: string): Per
 
 const STAGE_VALUES = {
   qualified:    ['Qualified', 'qualified'],
-  call_booked:  ['call_booked', 'Booked', 'Booked MT Call'],
+  call_booked:  ['call_booked', 'Booked', 'Booked MT Call', 'No-show'],
   showed:       ['showed', 'No-close'],
   closed_won:   ['High Ticket PiF', 'High Ticket Split', 'Mid Ticket PiF', 'Mid Ticket Split', 'Low Ticket', 'closed_won'],
   disqualified: ['Disqualified', 'disqualified', 'MT Budget'],
