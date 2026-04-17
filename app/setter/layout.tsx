@@ -10,7 +10,7 @@ export default async function SetterLayout({
   const user = await getSessionUser()
 
   if (!user) redirect('/login')
-  if (user.role !== 'setter' && user.role !== 'super_admin') redirect('/dashboard')
+  if (user.role !== 'setter' && user.role !== 'super_admin' && user.role !== 'creator') redirect('/dashboard')
 
   return (
     <div>

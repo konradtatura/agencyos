@@ -77,15 +77,12 @@ export async function POST(req: Request) {
 
   // Build allowed fields based on role
   const setterFields = [
-    'outbound_attempts', 'inbound_responses', 'booking_links_sent', 'good_convos',
-    'calls_booked', 'no_response_follows', 'top_3_wins', 'main_blocker',
-    'energy_level', 'notes_for_tomorrow',
+    'calls_booked', 'outbound_sent', 'inbound_received', 'outbound_booked_q',
+    'inbound_booked_q', 'dq_forms', 'booking_links_sent', 'downsell_cash',
   ]
   const closerFields = [
-    'scheduled_calls', 'calls_completed', 'no_shows', 'calls_closed', 'no_close_calls',
-    'rebooked_no_closes', 'disqualified', 'cash_collected', 'revenue_closed',
-    'payment_plans', 'full_pay', 'deposits_collected', 'no_close_reasons',
-    'no_show_reasons', 'coaching_needed_on', 'confidence_level', 'need_script_review',
+    'calls_booked', 'showed', 'canceled', 'disqualified', 'rescheduled',
+    'followup_shown', 'followup_closed', 'closes', 'cash_collected', 'revenue',
   ]
   const allowed = role === 'setter' ? setterFields : closerFields
   const filtered: Record<string, unknown> = {}

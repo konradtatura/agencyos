@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
-  CheckCircle2, Edit3, Phone, TrendingUp, ChevronRight,
-  ClipboardList, Star, LayoutDashboard,
+  CheckCircle2, Edit3, Phone, TrendingUp,
+  ClipboardList, LayoutDashboard,
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -21,34 +21,24 @@ interface EodSubmission {
   for_date: string
   role: string
   // setter
-  outbound_attempts?: number | null
-  inbound_responses?: number | null
-  booking_links_sent?: number | null
-  good_convos?: number | null
   calls_booked?: number | null
-  no_response_follows?: number | null
-  top_3_wins?: string | null
-  main_blocker?: string | null
-  energy_level?: number | null
-  notes_for_tomorrow?: string | null
+  outbound_sent?: number | null
+  inbound_received?: number | null
+  outbound_booked_q?: number | null
+  inbound_booked_q?: number | null
+  dq_forms?: number | null
+  booking_links_sent?: number | null
+  downsell_cash?: number | null
   // closer
-  scheduled_calls?: number | null
-  calls_completed?: number | null
-  no_shows?: number | null
-  calls_closed?: number | null
-  no_close_calls?: number | null
-  rebooked_no_closes?: number | null
+  showed?: number | null
+  canceled?: number | null
   disqualified?: number | null
+  rescheduled?: number | null
+  followup_shown?: number | null
+  followup_closed?: number | null
+  closes?: number | null
   cash_collected?: number | null
-  revenue_closed?: number | null
-  payment_plans?: number | null
-  full_pay?: number | null
-  deposits_collected?: number | null
-  no_close_reasons?: string | null
-  no_show_reasons?: string | null
-  coaching_needed_on?: string | null
-  confidence_level?: number | null
-  need_script_review?: boolean | null
+  revenue?: number | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -125,95 +115,6 @@ function NumberInput({
   )
 }
 
-function TextArea({
-  label, name, value, onChange, rows = 3,
-}: {
-  label: string
-  name: string
-  value: string
-  onChange: (name: string, val: string) => void
-  rows?: number
-}) {
-  return (
-    <div>
-      <label className="mb-1.5 block text-[12px] font-medium text-[#9ca3af]">{label}</label>
-      <textarea
-        rows={rows}
-        value={value}
-        onChange={(e) => onChange(name, e.target.value)}
-        className="w-full resize-none rounded-lg px-3 py-2.5 text-[13px] text-[#f9fafb] outline-none placeholder:text-[#4b5563] focus:ring-1 focus:ring-[#2563eb]"
-        style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-        placeholder="..."
-      />
-    </div>
-  )
-}
-
-function RatingInput({
-  label, name, value, onChange,
-}: {
-  label: string
-  name: string
-  value: number
-  onChange: (name: string, val: number) => void
-}) {
-  return (
-    <div>
-      <label className="mb-2 block text-[12px] font-medium text-[#9ca3af]">
-        {label} <span className="ml-1 text-[#f9fafb]">{value > 0 ? value : '—'}</span>
-      </label>
-      <div className="flex gap-1.5">
-        {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => onChange(name, n)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-[13px] font-semibold transition-all"
-            style={
-              value === n
-                ? { backgroundColor: '#2563eb', color: '#fff' }
-                : value > 0 && n <= value
-                ? { backgroundColor: 'rgba(37,99,235,0.2)', color: '#60a5fa' }
-                : { backgroundColor: 'rgba(255,255,255,0.04)', color: '#6b7280', border: '1px solid rgba(255,255,255,0.06)' }
-            }
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function SelectInput({
-  label, name, value, onChange, options,
-}: {
-  label: string
-  name: string
-  value: string
-  onChange: (name: string, val: string) => void
-  options: string[]
-}) {
-  return (
-    <div>
-      <label className="mb-1.5 block text-[12px] font-medium text-[#9ca3af]">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(name, e.target.value)}
-        className="h-11 w-full rounded-lg px-3 text-[13px] text-[#f9fafb] outline-none focus:ring-1 focus:ring-[#2563eb]"
-        style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-      >
-        <option value="">Select...</option>
-        {options.map((o) => (
-          <option key={o} value={o} style={{ backgroundColor: '#111827' }}>
-            {o}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
-}
-
 // ── Submitted Banner ──────────────────────────────────────────────────────────
 
 function SubmittedBanner({
@@ -228,29 +129,26 @@ function SubmittedBanner({
   const items =
     role === 'setter'
       ? [
-          fmt('Outbound Attempts', submission.outbound_attempts),
           fmt('Calls Booked', submission.calls_booked),
+          fmt('Outbound Sent', submission.outbound_sent),
+          fmt('Inbound Received', submission.inbound_received),
+          fmt('Outbound Booked (Q)', submission.outbound_booked_q),
+          fmt('Inbound Booked (Q)', submission.inbound_booked_q),
+          fmt('DQ Forms', submission.dq_forms),
           fmt('Booking Links Sent', submission.booking_links_sent),
-          fmt('Good Convos', submission.good_convos),
-          fmt('Inbound Responses', submission.inbound_responses),
-          fmt('No-Response Follows', submission.no_response_follows),
-          fmt('Energy Level', submission.energy_level ? `${submission.energy_level}/10` : null),
-          fmt('Top 3 Wins', submission.top_3_wins),
-          fmt('Main Blocker', submission.main_blocker),
-          fmt('Notes for Tomorrow', submission.notes_for_tomorrow),
+          { label: 'Downsell Cash', val: fmtCurrency(submission.downsell_cash) },
         ].filter(Boolean)
       : [
-          fmt('Scheduled Calls', submission.scheduled_calls),
-          fmt('Calls Completed', submission.calls_completed),
-          fmt('Calls Closed', submission.calls_closed),
-          fmt('No-Shows', submission.no_shows),
-          fmt('No-Close Calls', submission.no_close_calls),
+          fmt('Calls Booked', submission.calls_booked),
+          fmt('Showed', submission.showed),
+          fmt('Canceled', submission.canceled),
+          fmt('Disqualified', submission.disqualified),
+          fmt('Rescheduled', submission.rescheduled),
+          fmt('Follow-up Shown', submission.followup_shown),
+          fmt('Follow-up Closed', submission.followup_closed),
+          fmt('Closes', submission.closes),
           { label: 'Cash Collected', val: fmtCurrency(submission.cash_collected) },
-          { label: 'Revenue Closed', val: fmtCurrency(submission.revenue_closed) },
-          fmt('Confidence Level', submission.confidence_level ? `${submission.confidence_level}/10` : null),
-          fmt('No-Close Reasons', submission.no_close_reasons),
-          fmt('Coaching Needed On', submission.coaching_needed_on),
-          fmt('Script Review Needed', submission.need_script_review ? 'Yes' : null),
+          { label: 'Revenue', val: fmtCurrency(submission.revenue) },
         ].filter((i) => i && i.val)
 
   return (
@@ -307,44 +205,36 @@ function SetterForm({
   const [error, setError] = useState<string | null>(null)
 
   const [fields, setFields] = useState({
-    for_date: existing?.for_date ?? todayStr(),
-    outbound_attempts: String(existing?.outbound_attempts ?? ''),
-    inbound_responses: String(existing?.inbound_responses ?? ''),
+    for_date:          existing?.for_date          ?? todayStr(),
+    calls_booked:      String(existing?.calls_booked      ?? ''),
+    outbound_sent:     String(existing?.outbound_sent     ?? ''),
+    inbound_received:  String(existing?.inbound_received  ?? ''),
+    outbound_booked_q: String(existing?.outbound_booked_q ?? ''),
+    inbound_booked_q:  String(existing?.inbound_booked_q  ?? ''),
+    dq_forms:          String(existing?.dq_forms          ?? ''),
     booking_links_sent: String(existing?.booking_links_sent ?? ''),
-    good_convos: String(existing?.good_convos ?? ''),
-    calls_booked: String(existing?.calls_booked ?? ''),
-    no_response_follows: String(existing?.no_response_follows ?? ''),
-    top_3_wins: existing?.top_3_wins ?? '',
-    main_blocker: existing?.main_blocker ?? '',
-    energy_level: existing?.energy_level ?? 0,
-    notes_for_tomorrow: existing?.notes_for_tomorrow ?? '',
+    downsell_cash:     String(existing?.downsell_cash     ?? ''),
   })
 
   const set = (name: string, val: string) => setFields((f) => ({ ...f, [name]: val }))
-  const setNum = (name: string, val: number) => setFields((f) => ({ ...f, [name]: val }))
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     setError(null)
+    const numericFields = [
+      'calls_booked', 'outbound_sent', 'inbound_received', 'outbound_booked_q',
+      'inbound_booked_q', 'dq_forms', 'booking_links_sent', 'downsell_cash',
+    ] as const
+    const body: Record<string, unknown> = { role: 'setter', for_date: fields.for_date }
+    for (const k of numericFields) {
+      body[k] = fields[k] !== '' ? Number(fields[k]) : null
+    }
     try {
       const res = await fetch('/api/forms/eod', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role: 'setter',
-          for_date: fields.for_date,
-          outbound_attempts:   fields.outbound_attempts   !== '' ? Number(fields.outbound_attempts)   : null,
-          inbound_responses:   fields.inbound_responses   !== '' ? Number(fields.inbound_responses)   : null,
-          booking_links_sent:  fields.booking_links_sent  !== '' ? Number(fields.booking_links_sent)  : null,
-          good_convos:         fields.good_convos         !== '' ? Number(fields.good_convos)         : null,
-          calls_booked:        fields.calls_booked        !== '' ? Number(fields.calls_booked)        : null,
-          no_response_follows: fields.no_response_follows !== '' ? Number(fields.no_response_follows) : null,
-          top_3_wins:          fields.top_3_wins          || null,
-          main_blocker:        fields.main_blocker        || null,
-          energy_level:        fields.energy_level > 0    ? fields.energy_level                       : null,
-          notes_for_tomorrow:  fields.notes_for_tomorrow  || null,
-        }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to submit')
@@ -392,31 +282,15 @@ function SetterForm({
       <Card>
         <SectionLabel>Activity Numbers</SectionLabel>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <NumberInput label="Outbound Attempts"   name="outbound_attempts"   value={fields.outbound_attempts}   onChange={set} />
-          <NumberInput label="Inbound Responses"   name="inbound_responses"   value={fields.inbound_responses}   onChange={set} />
-          <NumberInput label="Booking Links Sent"  name="booking_links_sent"  value={fields.booking_links_sent}  onChange={set} />
-          <NumberInput label="Good Convos Today"   name="good_convos"         value={fields.good_convos}         onChange={set} />
-          <NumberInput label="Calls Booked"        name="calls_booked"        value={fields.calls_booked}        onChange={set} />
-          <NumberInput label="No-Response Follows" name="no_response_follows" value={fields.no_response_follows} onChange={set} />
+          <NumberInput label="Calls Booked"         name="calls_booked"       value={fields.calls_booked}       onChange={set} />
+          <NumberInput label="Outbound Sent"         name="outbound_sent"      value={fields.outbound_sent}      onChange={set} />
+          <NumberInput label="Inbound Received"      name="inbound_received"   value={fields.inbound_received}   onChange={set} />
+          <NumberInput label="Outbound Booked (Q)"   name="outbound_booked_q"  value={fields.outbound_booked_q}  onChange={set} />
+          <NumberInput label="Inbound Booked (Q)"    name="inbound_booked_q"   value={fields.inbound_booked_q}   onChange={set} />
+          <NumberInput label="DQ Forms Submitted"    name="dq_forms"           value={fields.dq_forms}           onChange={set} />
+          <NumberInput label="Booking Links Sent"    name="booking_links_sent" value={fields.booking_links_sent} onChange={set} />
+          <NumberInput label="$ Downsell Cash"       name="downsell_cash"      value={fields.downsell_cash}      onChange={set} prefix="$" />
         </div>
-      </Card>
-
-      <Card>
-        <SectionLabel>Reflection</SectionLabel>
-        <div className="space-y-4">
-          <TextArea label="Top 3 Wins Today"       name="top_3_wins"          value={fields.top_3_wins}          onChange={set} rows={3} />
-          <TextArea label="Main Blocker / Challenge" name="main_blocker"      value={fields.main_blocker}        onChange={set} rows={2} />
-          <TextArea label="Notes for Tomorrow"     name="notes_for_tomorrow"  value={fields.notes_for_tomorrow}  onChange={set} rows={2} />
-        </div>
-      </Card>
-
-      <Card>
-        <RatingInput
-          label="Energy Level (1–10)"
-          name="energy_level"
-          value={fields.energy_level}
-          onChange={setNum}
-        />
       </Card>
 
       {error && (
@@ -439,9 +313,6 @@ function SetterForm({
 
 // ── Closer Form ───────────────────────────────────────────────────────────────
 
-const NO_CLOSE_OPTIONS  = ['Not Qualified', 'Price Objection', 'Needs Time', 'Ghosted', 'Other']
-const NO_SHOW_OPTIONS   = ['No Reminder', 'Wrong Time', 'Not Serious', 'Other']
-
 function CloserForm({
   user,
   existing,
@@ -456,51 +327,34 @@ function CloserForm({
   const [error, setError] = useState<string | null>(null)
 
   const [fields, setFields] = useState({
-    for_date:           existing?.for_date        ?? todayStr(),
-    scheduled_calls:    String(existing?.scheduled_calls    ?? ''),
-    calls_completed:    String(existing?.calls_completed    ?? ''),
-    no_shows:           String(existing?.no_shows           ?? ''),
-    calls_closed:       String(existing?.calls_closed       ?? ''),
-    no_close_calls:     String(existing?.no_close_calls     ?? ''),
-    rebooked_no_closes: String(existing?.rebooked_no_closes ?? ''),
-    disqualified:       String(existing?.disqualified       ?? ''),
-    cash_collected:     String(existing?.cash_collected     ?? ''),
-    revenue_closed:     String(existing?.revenue_closed     ?? ''),
-    payment_plans:      String(existing?.payment_plans      ?? ''),
-    full_pay:           String(existing?.full_pay           ?? ''),
-    deposits_collected: String(existing?.deposits_collected ?? ''),
-    no_close_reasons:   existing?.no_close_reasons  ?? '',
-    no_show_reasons:    existing?.no_show_reasons   ?? '',
-    coaching_needed_on: existing?.coaching_needed_on ?? '',
-    confidence_level:   existing?.confidence_level  ?? 0,
-    need_script_review: existing?.need_script_review ?? false,
+    for_date:        existing?.for_date        ?? todayStr(),
+    calls_booked:    String(existing?.calls_booked    ?? ''),
+    showed:          String(existing?.showed          ?? ''),
+    canceled:        String(existing?.canceled        ?? ''),
+    disqualified:    String(existing?.disqualified    ?? ''),
+    rescheduled:     String(existing?.rescheduled     ?? ''),
+    followup_shown:  String(existing?.followup_shown  ?? ''),
+    followup_closed: String(existing?.followup_closed ?? ''),
+    closes:          String(existing?.closes          ?? ''),
+    cash_collected:  String(existing?.cash_collected  ?? ''),
+    revenue:         String(existing?.revenue         ?? ''),
   })
 
-  const set    = (name: string, val: string)  => setFields((f) => ({ ...f, [name]: val }))
-  const setNum = (name: string, val: number)  => setFields((f) => ({ ...f, [name]: val }))
+  const set = (name: string, val: string) => setFields((f) => ({ ...f, [name]: val }))
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     setError(null)
+    const numericFields = [
+      'calls_booked', 'showed', 'canceled', 'disqualified', 'rescheduled',
+      'followup_shown', 'followup_closed', 'closes', 'cash_collected', 'revenue',
+    ] as const
+    const body: Record<string, unknown> = { role: 'closer', for_date: fields.for_date }
+    for (const k of numericFields) {
+      body[k] = fields[k] !== '' ? Number(fields[k]) : null
+    }
     try {
-      const numericFields = [
-        'scheduled_calls', 'calls_completed', 'no_shows', 'calls_closed',
-        'no_close_calls', 'rebooked_no_closes', 'disqualified', 'cash_collected',
-        'revenue_closed', 'payment_plans', 'full_pay', 'deposits_collected',
-      ] as const
-      const body: Record<string, unknown> = {
-        role: 'closer',
-        for_date:           fields.for_date,
-        no_close_reasons:   fields.no_close_reasons   || null,
-        no_show_reasons:    fields.no_show_reasons     || null,
-        coaching_needed_on: fields.coaching_needed_on  || null,
-        confidence_level:   fields.confidence_level > 0 ? fields.confidence_level : null,
-        need_script_review: fields.need_script_review,
-      }
-      for (const k of numericFields) {
-        body[k] = fields[k] !== '' ? Number(fields[k]) : null
-      }
       const res = await fetch('/api/forms/eod', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -552,58 +406,23 @@ function CloserForm({
       <Card>
         <SectionLabel>Call Activity</SectionLabel>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <NumberInput label="Scheduled Calls"    name="scheduled_calls"    value={fields.scheduled_calls}    onChange={set} />
-          <NumberInput label="Calls Completed"    name="calls_completed"    value={fields.calls_completed}    onChange={set} />
-          <NumberInput label="No-Shows"           name="no_shows"           value={fields.no_shows}           onChange={set} />
-          <NumberInput label="Calls Closed"       name="calls_closed"       value={fields.calls_closed}       onChange={set} />
-          <NumberInput label="No-Close Calls"     name="no_close_calls"     value={fields.no_close_calls}     onChange={set} />
-          <NumberInput label="Rebooked No-Closes" name="rebooked_no_closes" value={fields.rebooked_no_closes} onChange={set} />
-          <NumberInput label="Disqualified"       name="disqualified"       value={fields.disqualified}       onChange={set} />
+          <NumberInput label="Calls Booked"      name="calls_booked"    value={fields.calls_booked}    onChange={set} />
+          <NumberInput label="Showed"            name="showed"          value={fields.showed}          onChange={set} />
+          <NumberInput label="Canceled"          name="canceled"        value={fields.canceled}        onChange={set} />
+          <NumberInput label="Disqualified"      name="disqualified"    value={fields.disqualified}    onChange={set} />
+          <NumberInput label="Rescheduled"       name="rescheduled"     value={fields.rescheduled}     onChange={set} />
+          <NumberInput label="Follow-up Shown"   name="followup_shown"  value={fields.followup_shown}  onChange={set} />
+          <NumberInput label="Follow-up Closed"  name="followup_closed" value={fields.followup_closed} onChange={set} />
+          <NumberInput label="Closes (original)" name="closes"          value={fields.closes}          onChange={set} />
         </div>
       </Card>
 
       <Card>
         <SectionLabel>Revenue</SectionLabel>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <NumberInput label="Cash Collected Today"  name="cash_collected"     value={fields.cash_collected}     onChange={set} prefix="$" />
-          <NumberInput label="Revenue Closed Today"  name="revenue_closed"     value={fields.revenue_closed}     onChange={set} prefix="$" />
-          <NumberInput label="Deposits Collected"    name="deposits_collected" value={fields.deposits_collected} onChange={set} prefix="$" />
-          <NumberInput label="Payment Plans"         name="payment_plans"      value={fields.payment_plans}      onChange={set} />
-          <NumberInput label="Full Pay"              name="full_pay"           value={fields.full_pay}           onChange={set} />
-        </div>
-      </Card>
-
-      <Card>
-        <SectionLabel>Reasons & Notes</SectionLabel>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <SelectInput label="Main No-Close Reasons" name="no_close_reasons" value={fields.no_close_reasons} onChange={set} options={NO_CLOSE_OPTIONS} />
-          <SelectInput label="Main No-Show Reasons"  name="no_show_reasons"  value={fields.no_show_reasons}  onChange={set} options={NO_SHOW_OPTIONS}   />
+          <NumberInput label="Cash Collected" name="cash_collected" value={fields.cash_collected} onChange={set} prefix="$" />
+          <NumberInput label="Revenue"        name="revenue"        value={fields.revenue}        onChange={set} prefix="$" />
         </div>
-        <div className="mt-4">
-          <TextArea label="Coaching Needed On" name="coaching_needed_on" value={fields.coaching_needed_on} onChange={set} rows={2} />
-        </div>
-        <div className="mt-4 flex items-center gap-3">
-          <input
-            id="script-review"
-            type="checkbox"
-            checked={fields.need_script_review}
-            onChange={(e) => setFields((f) => ({ ...f, need_script_review: e.target.checked }))}
-            className="h-4 w-4 rounded"
-            style={{ accentColor: '#2563eb' }}
-          />
-          <label htmlFor="script-review" className="text-[13px] text-[#9ca3af]">
-            Need Script Review?
-          </label>
-        </div>
-      </Card>
-
-      <Card>
-        <RatingInput
-          label="Confidence Level (1–10)"
-          name="confidence_level"
-          value={fields.confidence_level}
-          onChange={setNum}
-        />
       </Card>
 
       {error && (

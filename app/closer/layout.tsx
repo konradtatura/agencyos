@@ -10,7 +10,7 @@ export default async function CloserLayout({
   const user = await getSessionUser()
 
   if (!user) redirect('/login')
-  if (user.role !== 'closer' && user.role !== 'super_admin') redirect('/dashboard')
+  if (user.role !== 'closer' && user.role !== 'super_admin' && user.role !== 'creator') redirect('/dashboard')
 
   return (
     <div>
